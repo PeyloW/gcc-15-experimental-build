@@ -449,6 +449,16 @@ rm -f build-host/gcc/s-peep build-host/gcc/s-tmp-recog build-host/gcc/s-tmp-emit
 
 **Violation symptom:** Peephole fires incorrectly, clobbering a live register.
 
+### cprop_hardreg undoes peephole2
+
+**Rule:** Peephole2 patterns that emit separate insns (e.g. `move` + `branch`) can be undone by `cprop_hardreg` (9.18), which runs after `peephole2` (9.14). If the peephole copies a register and the copy is only used by the next insn, cprop propagates the original register back and deletes the dead copy.
+
+**Why:** cprop_hardreg performs forward copy propagation on hard registers. A peephole2 that splits `(branch on %aN)` into `(set %dN %aN)` + `(branch on %dN)` creates a copy that cprop can see through — it replaces `%dN` with `%aN` in the branch and marks the `move` as dead.
+
+**Solution:** Use a parallel-with-clobber in the peephole2 output, keeping the transformation as a single insn. The RTL still contains the original operand (e.g. `%aN`), so cprop has nothing to propagate. The actual substitution (e.g. `move.l %aN,%dN`) happens only at assembly output time in the `define_insn` template.
+
+**Violation symptom:** Peephole2 fires (visible in `-fdump-rtl-peephole2`) but the final assembly is unchanged. The cprop dump (`-fdump-rtl-cprop_hardreg`) shows "replaced reg N with M" and "deferring deletion of insn".
+
 ### Cross-BB SSA (GIMPLE passes with sjlj exceptions)
 
 **Rule:** GIMPLE passes that chain SSA names across basic blocks must account for extra EH edges created by sjlj exceptions.

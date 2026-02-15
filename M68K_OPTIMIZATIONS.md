@@ -438,19 +438,26 @@ swap    d0
 
 Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. On m68k, only address registers can serve as base registers, so IRA's default allocation can result in expensive register-to-register moves.
 
+On 68000/68010, this promotion introduces a regression for NULL pointer checks: `tst.l` cannot operate on address registers, so the backend emits `cmp.w #0,%aN` (4 bytes, 12 cycles). A peephole2 fixes this by replacing the compare with `move.l %aN,%dN` (2 bytes, 4 cycles) when a scratch data register is available. The `move.l` sets CC identically to `cmp.w #0`, so the existing CC elision mechanism skips the subsequent `tst.l`. On 68020+ this is unnecessary since `tst.l %aN` is valid (2 bytes).
+
 Disable with: `-mno-m68k-ira-promote`
 
 **Hook:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
 
-**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`)
+**Patterns:** `*cbranchsi4_areg_zero`, `*cbranchsi4_areg_zero_rev` (`define_insn`), address register zero test (`define_peephole2`)
+
+**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k.md`
 
 ### Implementation history
 
-1. **Single commit** (`595da26c5a1`): Added the `m68k_ira_change_pseudo_allocno_class` hook. When IRA is about to assign a pseudo-register to DATA_REGS but that pseudo is used as a memory base address (inside a MEM RTX), the hook promotes it to ADDR_REGS. This prevents the costly `move.l dN,aM` before every memory access.
+1. **IRA promotion hook** (`595da26c5a1`): Added the `m68k_ira_change_pseudo_allocno_class` hook. When IRA is about to assign a pseudo-register to DATA_REGS but that pseudo is used as a memory base address (inside a MEM RTX), the hook promotes it to ADDR_REGS. This prevents the costly `move.l dN,aM` before every memory access.
+2. **Address register zero test** (`ea1920e44cf`): Added peephole2 + define_insn patterns to fix the NULL-check regression on 68000/68010 caused by IRA promotion. A naive peephole2 emitting separate `(set dN aN)` + `(branch on dN)` was undone by `cprop_hardreg` (9.18), which propagated the address register back and deleted the dead copy. The solution uses a parallel-with-clobber: the RTL still compares the address register `(eq %aN 0)`, but the `define_insn` output template emits `move.l %aN,%dN` and relies on CC elision to skip the `tst.l`. Since `cprop_hardreg` sees a comparison against `%aN` (not a copy to `%dN`), it has nothing to undo.
 
 ### How it works
 
-IRA assigns pseudo-registers to register classes based on instruction constraints. However, it sometimes assigns a pointer pseudo to DATA_REGS when address registers are under pressure. On m68k, data registers cannot be used as base registers in memory operands — any `(d3)` would require a `move.l d3,a0` copy first. The hook scans uses of each pseudo and forces address-register allocation when any use is inside a MEM operand.
+**IRA promotion:** IRA assigns pseudo-registers to register classes based on instruction constraints. However, it sometimes assigns a pointer pseudo to DATA_REGS when address registers are under pressure. On m68k, data registers cannot be used as base registers in memory operands — any `(d3)` would require a `move.l d3,a0` copy first. The hook scans uses of each pseudo and forces address-register allocation when any use is inside a MEM operand.
+
+**Address register zero test (68000/68010):** The peephole2 matches a `cbranchsi4_insn` comparing an address register against zero and adds a clobber, forming a `*cbranchsi4_areg_zero` insn. The output template calls `output_move_simode` (which sets `flags_valid = FLAGS_VALID_MOVE` and `flags_operand1 = %dN`), then `m68k_output_compare_si` (which finds flags already valid and elides `tst.l`), then `m68k_output_branch_integer`. Net assembly: `move.l %aN,%dN; jCC label` (4 bytes) instead of `cmp.w #0,%aN; jCC label` (6 bytes).
 
 ### Examples
 
@@ -473,10 +480,26 @@ while (n--) sum += *p++;
     dbra    d3,.loop
 ```
 
+Address register NULL check (68000/68010):
+
+```c
+while (p) { sum += p->val; p = p->next; }
+```
+```asm
+; Before: expensive address register compare
+    cmp.w   #0,%a0          ; 4 bytes, 12 cycles
+    jeq     .done
+
+; After: move to scratch data register with CC elision
+    move.l  %a0,%d0         ; 2 bytes, 4 cycles (CC set)
+    jeq     .done           ; no tst.l needed
+```
+
 ### Test cases
 
 - `test_redundant_move()` — sum loop with pointer in correct register
 - `test_loop_moves()` — cast-heavy pointer arithmetic stays in address register
+- `test_null_ptr_loop()` — linked list NULL check uses `move.l` instead of `cmp.w #0` on 68000
 
 ---
 

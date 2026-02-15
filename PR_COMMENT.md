@@ -88,11 +88,15 @@ Disable with: `-mno-m68k-highword-opt`
 
 Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Without this, IRA may allocate pointers to data registers, requiring expensive register-to-register moves on every memory access.
 
+On 68000/68010, a peephole2 fixes the resulting NULL-check regression (`cmp.w #0,%aN` → `move.l %aN,%dN` with CC elision, saving 2 bytes per check). Uses a parallel-with-clobber to survive `cprop_hardreg`.
+
 Disable with: `-mno-m68k-ira-promote`
 
 **Hook:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
 
-**Code:** `gcc/config/m68k/m68k.cc`
+**Patterns:** `*cbranchsi4_areg_zero` (`define_insn`), address register zero test (`define_peephole2`)
+
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`
 
 ## 10. Improved Loop Unrolling
 

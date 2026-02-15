@@ -1,0 +1,79 @@
+diff --git a/atari/core_portme.c b/atari/core_portme.c
+index 817202b..ece56cf 100644
+--- a/atari/core_portme.c
++++ b/atari/core_portme.c
+@@ -18,11 +18,26 @@ Original Author: Shay Gal-on
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <stdarg.h>
+ #include "coremark.h"
+ #if CALLGRIND_RUN
+ #include <valgrind/callgrind.h>
+ #endif
+ 
++#define _STR(s) #s
++#define STR(s) _STR(s)
++
++static FILE *log_fp;
++
++int ee_printf(const char *fmt, ...) {
++	va_list ap;
++	int ret;
++	va_start(ap, fmt);
++	ret = vfprintf(log_fp, fmt, ap);
++	va_end(ap);
++	return ret;
++}
++
+ #if (MEM_METHOD==MEM_MALLOC)
+ #include <malloc.h>
+ /* Function: portable_malloc
+@@ -186,6 +201,12 @@ void portable_init(core_portable *p, int *argc, char *argv[])
+ 		ee_printf("Arg[%d]=%s\n",i,argv[i]);
+ 	}
+ #endif
++	log_fp = fopen(STR(LOG_NAME) ".log", "w");
++	if (!log_fp) {
++		printf("Error: cannot open " STR(LOG_NAME) ".log for writing\n");
++		exit(1);
++	}
++
+ 	if (sizeof(ee_ptr_int) != sizeof(ee_u8 *)) {
+ 		ee_printf("ERROR! Please define ee_ptr_int to a type that holds a pointer!\n");
+ 	}
+@@ -219,6 +240,10 @@ void portable_init(core_portable *p, int *argc, char *argv[])
+ void portable_fini(core_portable *p)
+ {
+ 	p->portable_id=0;
++	if (log_fp) {
++		fclose(log_fp);
++		printf("Results written to " STR(LOG_NAME) ".log\n");
++	}
+ }
+ 
+ #if (MULTITHREAD>1)
+diff --git a/atari/core_portme.h b/atari/core_portme.h
+index 359cbc8..99087a6 100644
+--- a/atari/core_portme.h
++++ b/atari/core_portme.h
+@@ -51,8 +51,9 @@ Original Author: Shay Gal-on
+ 	Define to 1 if the platform has stdio.h and implements the printf function.
+ */
+ #ifndef HAS_PRINTF
+-#define HAS_PRINTF 1
++#define HAS_PRINTF 0
+ #endif
++int ee_printf(const char *fmt, ...);
+ 
+ /* Configuration: CORE_TICKS
+ 	Define type of return from the timing functions.
+@@ -112,7 +113,7 @@ typedef size_t ee_size_t;
+ 	SEED_VOLATILE - from volatile variables.
+ */
+ #ifndef SEED_METHOD
+-#define SEED_METHOD SEED_ARG
++#define SEED_METHOD SEED_VOLATILE
+ #endif
+ 
+ /* Configuration: MEM_METHOD

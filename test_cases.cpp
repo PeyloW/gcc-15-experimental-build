@@ -1009,6 +1009,27 @@ extern "C" {
         }
     }
 
+    /* test_null_ptr_loop - linked list traversal with NULL pointer check
+     * Optimizations:
+     *   - Address register zero test: On 68000/68010, the NULL check
+     *     (while (p)) generates cmp.w #0,%aN (4 bytes, 12 cycles) because
+     *     tst.l doesn't work on address registers.  Peephole2 replaces
+     *     with move.l %aN,%dN (2 bytes, 4 cycles) + CC elision.
+     * Expected for 68000: move.l %aN,%dN + jCC instead of cmp.w #0,%aN + jCC
+     * Expected for 68020+: tst.l %aN (already optimal, no transformation)
+     * Responsible: peephole2 (address register zero test), CC elision
+     * Savings at -O2 (68000): 2 bytes, ~8 cycles per NULL check
+     */
+    struct node { struct node *next; int val; };
+    int __attribute__((noinline)) test_null_ptr_loop(struct node *p) {
+        int sum = 0;
+        while (p) {
+            sum += p->val;
+            p = p->next;
+        }
+        return sum;
+    }
+
     int test_mintlib_strcmp(const char *scan1, const char *scan2) {
         register unsigned char c1, c2;
         if (!scan1)

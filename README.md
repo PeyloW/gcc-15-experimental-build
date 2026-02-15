@@ -71,6 +71,7 @@ See [GCC_DEBUG.md](GCC_DEBUG.md) for debugging workflows, or jump straight to th
 | [build-gcc.sh](build-gcc.sh) | Configure, build, install, or clean the cross-compiler. |
 | [build-test_cases.sh](build-test_cases.sh) | Compile `test_cases.cpp` with both compilers and compare instruction counts. |
 | [build-mikros.sh](build-mikros.sh) | Build 16 packages with both non-sjlj and sjlj compilers for integration testing. |
+| [build-coremark.sh](build-coremark.sh) | Build CoreMark benchmark variants and compare results. |
 | [debug-asm-diff.sh](debug-asm-diff.sh) | Compare assembly output between stock GCC 15 and this branch for a single source file. |
 | [debug-bisect-passes.sh](debug-bisect-passes.sh) | Disable each m68k pass individually to find which one causes a regression or ICE. |
 | [debug-dump-pass.sh](debug-dump-pass.sh) | Dump RTL or GIMPLE pass output, with optional two-pass diffing. |

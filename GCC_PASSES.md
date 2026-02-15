@@ -658,7 +658,7 @@ muls.w  #320,d0
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
 | `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
 | `m68k_pass_normalize_autoinc` (9.13a) | Normalize autoinc patterns | Canonicalize for later passes |
-| `pass_peephole2` (9.14) | Pattern-based optimization | Complex multi-insn patterns |
+| `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |
 | `m68k_pass_opt_autoinc` (9.14b) | Convert indexed→autoinc | `(a0); lea 4(a0),a0` → `(a0)+` |
 | `m68k_pass_highword_opt` (9.19a) | Word packing | `andi.l #$ffff; ori.l` → `swap; move.w` |
@@ -674,6 +674,7 @@ The m68k machine description (`m68k.md`) defines patterns that enable:
 3. **Bit operations**: `bset`, `bclr`, `btst` patterns
 4. **Move optimization**: `moveq`, `clr`, combined load/store
 5. **Arithmetic**: `addq`/`subq` for small constants
+6. **Address register zero test**: `move.l %aN,%dN` + CC elision instead of `cmp.w #0,%aN` (68000/68010)
 
 ---
 
