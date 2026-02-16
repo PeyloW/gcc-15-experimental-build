@@ -1030,6 +1030,96 @@ extern "C" {
         return sum;
     }
 
+    /* test_btst_ashiftrt_hi - HI-mode btst extraction with arithmetic shift
+     * Signed type forces ashiftrt; shift by 9 exceeds 68000 immediate limit
+     * (1-8), requiring a register load — tests 3-insn peephole (Pattern F).
+     * Expected for 68000: btst #9,d0; sne d0; neg.b d0
+     * Savings: ~16 cycles (moveq+asr+and=36 vs btst+sne+neg=20)
+     */
+    short __attribute__((noinline)) test_btst_ashiftrt_hi(short val) {
+        return (val >> 9) & 1;
+    }
+
+    /* test_btst_ashiftrt_hi_const - HI-mode btst extraction with const shift
+     * Shift by 5 is within 68000 immediate range (1-8) — tests 2-insn
+     * peephole (Pattern E).
+     * Expected for 68000: btst #5,d0; sne d0; neg.b d0
+     * Savings: ~8 cycles (asr+and=28 vs btst+sne+neg=20)
+     */
+    short __attribute__((noinline)) test_btst_ashiftrt_hi_const(short val) {
+        return (val >> 5) & 1;
+    }
+
+    /* ==========================================================================
+     * ANDI_ZEXT ENHANCEMENT TEST CASES (CRC table lookup patterns)
+     *
+     * These test the two gaps in the backward scan of the andi_zext pass:
+     *
+     * Pattern 1 (clr.w + move.b): The backward scan hits move.b (DEFINES_BYTE)
+     * and stops, never reaching the clr.w (DEFINES_WORD) above it.  Fix:
+     * continue past DEFINES_BYTE for WORD_TO_LONG, then widen clr.w to moveq.
+     *
+     * Pattern 2 (and.w #N): Function parameter has no definition in the BB.
+     * and.w #255 masks to byte range but leaves bits 16-31 dirty.  Fix:
+     * widen and.w #N to and.l #N to clear upper bits, eliminating later
+     * and.l #65535.
+     * ========================================================================== */
+
+    /* test_andi_clrw_byte_def - clr.w + move.b pattern (Gap 1)
+     * Uses cdecl to get stack parameters, which generates:
+     *   clr.w %dN; move.b src,%dN; byte_ops; add.w; and.l #65535
+     * The backward scan hits move.b (DEFINES_BYTE) and stops, never
+     * reaching clr.w (DEFINES_WORD).  Fix: continue past DEFINES_BYTE
+     * for WORD_TO_LONG, then widen clr.w to moveq #0.
+     * Expected: no and.l #65535 in output (68000 targets).
+     * Responsible: Pass 250b (m68k_pass_elim_andi)
+     * Savings at -O2: 16 cycles, 6 bytes per elimination
+     */
+    extern unsigned short ext_table[256];
+    unsigned short __attribute__((noinline, cdecl))
+    test_andi_clrw_byte_def(unsigned char data, unsigned short crc) {
+        unsigned char rev = data;
+        rev = ((rev >> 4) | (rev << 4));
+        rev = ((rev & 0xCC) >> 2) | ((rev & 0x33) << 2);
+        rev = ((rev & 0xAA) >> 1) | ((rev & 0x55) << 1);
+        unsigned short idx = (unsigned short)rev ^ (crc >> 8);
+        idx += idx;
+        return ext_table[idx];
+    }
+
+    /* test_andi_widen_mask - and.w #255 widening pattern (Gap 2)
+     * With fastcall, byte parameter in d0 has no explicit definition.
+     * Backward scan finds and.w #255 (MODIFIES_WORD) but reaches function
+     * entry with no definition.  Fix: widen and.w #255 to and.l #255 to
+     * clear bits 16-31, eliminating later and.l #65535.
+     * Expected: and.l #255 instead of and.w #255, no and.l #65535.
+     * Responsible: Pass 250b (m68k_pass_elim_andi)
+     * Savings at -O2: 8 cycles, 4 bytes per elimination
+     */
+    unsigned short __attribute__((noinline))
+    test_andi_widen_mask(unsigned char data, unsigned short crc) {
+        unsigned char rev = ((data >> 4) | (data << 4));
+        unsigned short idx = (unsigned short)(rev & 0xFF) ^ (crc >> 8);
+        idx += idx;
+        return ext_table[idx];
+    }
+
+    /* test_areg_zero_elide - redundant move.l aN,dN elision
+     * When a preceding instruction (e.g., move.l aN,<mem>) already sets CC
+     * for the address register, the move.l aN,dN inserted by peephole2 for
+     * NULL pointer checks is redundant.
+     * Expected for 68000: store sets CC, branch directly (no move.l aN,dN)
+     * Responsible: *cbranchsi4_areg_zero CC check in m68k.md
+     * Savings at -O2 (68000): 2 bytes, 4 cycles per elided move
+     */
+    struct ref_count { int count; };
+    void __attribute__((noinline))
+    test_areg_zero_elide(ref_count **dst, ref_count *cnt) {
+        *dst = cnt;
+        if (cnt)
+            cnt->count++;
+    }
+
     int test_mintlib_strcmp(const char *scan1, const char *scan2) {
         register unsigned char c1, c2;
         if (!scan1)

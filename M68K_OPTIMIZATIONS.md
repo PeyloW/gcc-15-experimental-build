@@ -326,6 +326,8 @@ Disable with: `-mno-m68k-elim-andi`
 
 1. **Initial implementation** (`0e6555c0b69`): Replaces `andi.l #$ff` / `andi.l #$ffff` used for zero-extension with a hoisted `moveq #0,dN` before the register's definition point. The `moveq` clears the upper bits, so subsequent byte/word operations preserve the zero upper bits naturally.
 2. **Loop hoisting fix** (`ec328e3263e`): Corrected hoisting of the pre-clearing `moveq #0` out of loops. The zero register must be established before the definition that feeds the `andi`, which may be a loop-carried value.
+3. **clr.w+move.b scan continuation** (`5d9c5565653`): The backward scan stopped at `DEFINES_BYTE` (e.g., `move.b`), missing a preceding `clr.w` that could be widened to `moveq #0`. For `WORD_TO_LONG` candidates, the scan now continues past byte definitions to find word-level definitions. When it finds `clr.w`, it widens it in-place to `moveq #0` (clearing all 32 bits), making the later `andi.l #65535` redundant.
+4. **and.w mask widening** (`5d9c5565653`): When the backward scan reaches function entry with no definition but finds `and.w #N` along the way (e.g., masking a parameter), the pass widens `and.w #N` to `and.l #N`. This clears bits 16-31 as a side effect, eliminating the later `andi.l #65535`.
 
 ### How it works
 
@@ -366,6 +368,8 @@ move.b  (a0)+,d0             ; upper bits stay zero
 - `test_cross_bb_simple()` — cross-BB definition
 - `test_cross_bb_cond()` — conditional definition paths
 - `test_cross_bb_loop()` — definition before loop
+- `test_andi_clrw_byte_def()` — `clr.w`+`move.b` pattern: scan past byte def to find widenable `clr.w`
+- `test_andi_widen_mask()` — `and.w #N` widening: widen to `and.l #N` to eliminate later `andi.l #65535`
 
 ---
 
@@ -452,12 +456,13 @@ Disable with: `-mno-m68k-ira-promote`
 
 1. **IRA promotion hook** (`595da26c5a1`): Added the `m68k_ira_change_pseudo_allocno_class` hook. When IRA is about to assign a pseudo-register to DATA_REGS but that pseudo is used as a memory base address (inside a MEM RTX), the hook promotes it to ADDR_REGS. This prevents the costly `move.l dN,aM` before every memory access.
 2. **Address register zero test** (`ea1920e44cf`): Added peephole2 + define_insn patterns to fix the NULL-check regression on 68000/68010 caused by IRA promotion. A naive peephole2 emitting separate `(set dN aN)` + `(branch on dN)` was undone by `cprop_hardreg` (9.18), which propagated the address register back and deleted the dead copy. The solution uses a parallel-with-clobber: the RTL still compares the address register `(eq %aN 0)`, but the `define_insn` output template emits `move.l %aN,%dN` and relies on CC elision to skip the `tst.l`. Since `cprop_hardreg` sees a comparison against `%aN` (not a copy to `%dN`), it has nothing to undo.
+3. **Redundant move elision** (`5d9c5565653`): The `*cbranchsi4_areg_zero` output template now checks `m68k_find_flags_value()` before emitting `move.l %aN,%dN`. When the preceding instruction (e.g., `move.l %aN,<mem>`) already sets CC for the address register, the move is skipped — the branch uses CC directly. Saves 2 bytes and 4 cycles per elided instance (15 instances in the game binary, all shared_ptr reference counting).
 
 ### How it works
 
 **IRA promotion:** IRA assigns pseudo-registers to register classes based on instruction constraints. However, it sometimes assigns a pointer pseudo to DATA_REGS when address registers are under pressure. On m68k, data registers cannot be used as base registers in memory operands — any `(d3)` would require a `move.l d3,a0` copy first. The hook scans uses of each pseudo and forces address-register allocation when any use is inside a MEM operand.
 
-**Address register zero test (68000/68010):** The peephole2 matches a `cbranchsi4_insn` comparing an address register against zero and adds a clobber, forming a `*cbranchsi4_areg_zero` insn. The output template calls `output_move_simode` (which sets `flags_valid = FLAGS_VALID_MOVE` and `flags_operand1 = %dN`), then `m68k_output_compare_si` (which finds flags already valid and elides `tst.l`), then `m68k_output_branch_integer`. Net assembly: `move.l %aN,%dN; jCC label` (4 bytes) instead of `cmp.w #0,%aN; jCC label` (6 bytes).
+**Address register zero test (68000/68010):** The peephole2 matches a `cbranchsi4_insn` comparing an address register against zero and adds a clobber, forming a `*cbranchsi4_areg_zero` insn. The output template first checks `m68k_find_flags_value()` — if CC is already valid for the address register (e.g., from a preceding `move.l %aN,<mem>`), the move is skipped entirely and only the branch is emitted. Otherwise, the template calls `output_move_simode` (which sets `flags_valid = FLAGS_VALID_MOVE` and `flags_operand1 = %dN`), then `m68k_output_compare_si` (which finds flags already valid and elides `tst.l`), then `m68k_output_branch_integer`. Net assembly: `move.l %aN,%dN; jCC label` (4 bytes) instead of `cmp.w #0,%aN; jCC label` (6 bytes), or just `jCC label` (2 bytes) when CC is already valid.
 
 ### Examples
 
@@ -495,11 +500,29 @@ while (p) { sum += p->val; p = p->next; }
     jeq     .done           ; no tst.l needed
 ```
 
+Redundant move elision (68000/68010, when preceding store sets CC):
+
+```c
+*dst = cnt;
+if (cnt) cnt->count++;
+```
+```asm
+; Before: redundant move after store
+    move.l  %a1,(%a0)       ; sets CC for a1
+    move.l  %a1,%d0         ; REDUNDANT — CC already valid
+    jeq     .done
+
+; After: store sets CC, branch directly
+    move.l  %a1,(%a0)       ; sets CC for a1
+    jeq     .done           ; uses CC from store
+```
+
 ### Test cases
 
 - `test_redundant_move()` — sum loop with pointer in correct register
 - `test_loop_moves()` — cast-heavy pointer arithmetic stays in address register
 - `test_null_ptr_loop()` — linked list NULL check uses `move.l` instead of `cmp.w #0` on 68000
+- `test_areg_zero_elide()` — store sets CC for address register, `move.l aN,dN` elided
 
 ---
 
@@ -626,7 +649,8 @@ Disable with: `-mno-m68k-btst-extract`
 
 ### Implementation history
 
-1. **Single commit** (`64c9c826e66`): Added `cstore_btst` pattern and supporting peephole2. The `define_insn` emits `btst #N,<ea>; sne dN` directly. For unsigned results, a `neg.b` follows to convert `0xFF` → `0x01`. For signed 1-bit fields, `sne` already produces the correct `-1`/`0` result (`STORE_FLAG_VALUE = -1` on m68k).
+1. **QI-mode patterns** (`64c9c826e66`): Added `cstore_btst` pattern and supporting peephole2. The `define_insn` emits `btst #N,<ea>; sne dN` directly. For unsigned results, a `neg.b` follows to convert `0xFF` → `0x01`. For signed 1-bit fields, `sne` already produces the correct `-1`/`0` result (`STORE_FLAG_VALUE = -1` on m68k).
+2. **HI-mode patterns** (`34a9967708a`): Extended btst extraction peephole2 to HI mode (16-bit values, common with `-mshort`). Also added `ashiftrt` matching — when the source is signed, GCC generates arithmetic shift right, but for single-bit extraction `(x >> N) & 1` the result is identical to logical shift. For shifts exceeding the 68000's immediate limit (1-8), the constant-time `btst` is especially profitable since it avoids a register load for the shift count.
 
 ### How it works
 
@@ -677,6 +701,8 @@ sne     d0
 - `test_extract_mem_signed()` — memory QI signed, bit 4 → `btst+sne` (no neg)
 - `test_extract_reg_bit6()` — register unsigned, bit 6 (profitable)
 - `test_extract_reg_bit1()` — register unsigned, bit 1 (NOT profitable, negative test)
+- `test_btst_ashiftrt_hi()` — HI-mode arithmetic shift by 9 → `btst #9` (exceeds immediate limit)
+- `test_btst_ashiftrt_hi_const()` — HI-mode arithmetic shift by 5 → `btst #5` (within immediate limit)
 - `test_bit_struct_active()` through `test_bit_struct_hidden()` — bitfield operations at various positions
 
 ---

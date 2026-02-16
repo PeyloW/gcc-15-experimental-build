@@ -1,14 +1,12 @@
 # m68k Backend Optimizations
 
-Since GCC 3, the m68k backend has received little attention while the rest of the compiler infrastructure has evolved significantly. The result is that GCC often generates surprisingly poor code for m68k: inefficient memory access patterns that ignore post-increment addressing, loops that barely ever use `dbra`, and wasteful instruction sequences that a human would never write.
+Since GCC 3, the m68k backend has received little attention. GCC generates poor code for m68k: inefficient memory access patterns, loops that barely use `dbra`, and wasteful instruction sequences. These optimizations address the most glaring missed opportunities.
 
-The optimizations in this branch aim to address some of the most glaring missed opportunities.
-
-My target machine is a 68000 with `-mshort` and `-mfastcall`, so that configuration has received the most testing and attention. Many of these optimizations also benefit 32-bit int mode and 68020+, but that is more by luck than deliberate effort—I have only verified that those configurations do not regress.
+Target machine is 68000 with `-mshort -mfastcall`. Many optimizations also benefit 32-bit int mode and 68020+, but those configurations have only been verified not to regress.
 
 ## 1. RTX and Address Cost Calculations
 
-Rewritten cost model using lookup tables with actual cycle counts per CPU generation (68000, 68020-030, 68040+), inspired by Bebbo's gcc6 work. `TARGET_ADDRESS_COST` distinguishes per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed addressing, and `TARGET_INSN_COST` costs whole instructions including memory destinations — non-RMW compound operations are costed additively to prevent combine from folding IVs into base+offset form.
+Rewritten cost model with actual cycle counts per CPU generation (68000, 68020-030, 68040+), inspired by Bebbo's gcc6 work. `TARGET_ADDRESS_COST` distinguishes per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed addressing, and `TARGET_INSN_COST` costs whole instructions including memory destinations.
 
 **Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new)
 
@@ -16,7 +14,7 @@ Rewritten cost model using lookup tables with actual cycle counts per CPU genera
 
 ## 2. Induction Variable Optimization
 
-Discounts IV step costs to zero when the step matches a memory access size (1, 2, or 4 bytes), so IVOPTS prefers separate pointer IVs that benefit from post-increment over fewer IVs with indexed addressing. Also prefers fewer IV registers when cost is equal, and avoids autoincrement in outer loops.
+Discounts IV step costs to zero when the step matches a memory access size, so IVOPTS prefers separate pointer IVs with post-increment over fewer IVs with indexed addressing. Also prefers fewer IV registers when cost is equal.
 
 Disable step discount with: `-fno-ivopts-autoinc-step`
 
@@ -64,7 +62,7 @@ Disable with: `-mno-m68k-narrow-index-mult`
 
 ## 7. ANDI Hoisting
 
-Replaces repeated `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. The `moveq` is placed outside the loop, and each zero-extension becomes a simple `move.b` into the pre-cleared register.
+Replaces repeated `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. The `moveq` is placed outside the loop, and each zero-extension becomes a simple `move.b` into the pre-cleared register. Also handles `clr.w`+`move.b` sequences (widen `clr.w` to `moveq #0`) and widens `and.w #N` to `and.l #N` when that eliminates a later `andi.l #65535`.
 
 Disable with: `-mno-m68k-elim-andi`
 
@@ -86,9 +84,9 @@ Disable with: `-mno-m68k-highword-opt`
 
 ## 9. IRA Register Class Promotion
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Without this, IRA may allocate pointers to data registers, requiring expensive register-to-register moves on every memory access.
+Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses, preventing expensive `move.l dN,aM` copies on every memory access.
 
-On 68000/68010, a peephole2 fixes the resulting NULL-check regression (`cmp.w #0,%aN` → `move.l %aN,%dN` with CC elision, saving 2 bytes per check). Uses a parallel-with-clobber to survive `cprop_hardreg`.
+On 68000/68010, a peephole2 fixes the resulting NULL-check regression (`cmp.w #0,%aN` → `move.l %aN,%dN` with CC elision). The output template also checks if CC is already valid from a preceding instruction (e.g., a store), skipping the move entirely.
 
 Disable with: `-mno-m68k-ira-promote`
 
@@ -116,7 +114,7 @@ Disable with: `-mno-m68k-reorder-mem`
 
 ## 12. Single-Bit Extraction
 
-Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles while `btst` is constant time. For unsigned results, `neg.b` converts `sne` to 0/1; for signed 1-bit fields, `sne` produces -1/0 directly. Disabled on 68020+ where `bfextu`/`bfexts` handle this.
+Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Supports QI and HI modes, and matches both logical and arithmetic shifts. Shifts cost 6+2N cycles while `btst` is constant time. For unsigned results, `neg.b` converts `sne` to 0/1; for signed 1-bit fields, `sne` produces -1/0 directly. Disabled on 68020+ where `bfextu`/`bfexts` handle this.
 
 Disable with: `-mno-m68k-btst-extract`
 
@@ -150,20 +148,4 @@ Loosens restrictions on sibcall (tail call) optimization under the fastcall ABI.
 
 ## Appendix A: libcmini Real-World Example
 
-`memcmp` from libcmini compiled with `-Os -mshort -mfastcall`:
-
-```asm
-; Post-increment addressing (32 cycles/byte, 28 bytes)
-.loop:  move.b  (a0)+,d0
-        move.b  (a1)+,d1
-        cmp.b   d0,d1
-        beq.s   .check
-```
-
-**Optimizations applied:**
-
-1. **Induction Variable (§2):** IVOPTS selects separate pointer IVs instead of a single integer counter
-2. **Autoincrement Pass (§3):** Converts indexed `(a0,d2.l)` to post-increment `(a0)+`
-3. **IRA Register Class (§9):** Keeps pointers in address registers
-
-**Result:** 43% faster, 30% smaller code vs stock GCC 15.
+`memcmp` from libcmini (`-Os -mshort -mfastcall`): §2 (IVOPTS) selects separate pointer IVs, §3 (autoinc) converts to `(a0)+`, §9 (IRA) keeps pointers in address registers. Result: 43% faster, 30% smaller vs stock GCC 15.
