@@ -399,6 +399,16 @@ This enables extra verification after each pass — catches CFG corruption, DF i
 
 **Fix:** Check `reg_mentioned_p` (is the address register used in the source?) and `get_negative_offset == 0` before attempting normalization.
 
+#### Wrong width assumption (struct zero miscompilation)
+
+**Symptom:** Silent miscompilation — `clr.w d5` instead of `clr.l d5` for a `point_s{0,0}` struct argument. High word of the register contained garbage from an earlier `move.l a6,d5`, producing a wrong struct value.
+
+**Cause:** The `clrw_follows_andi_p` optimization in `m68k-elim-andi` saw `andi.l #$ffff` followed by `clr.w` and concluded "andi only preserves low bits that clr.w will clear, so andi is redundant." But `andi.l #$ffff` *also* clears the high word (bits 16-31) — it's `AND` with `0x0000FFFF`, which zeros everything above bit 15. Deleting it left the high word as garbage.
+
+**Fix:** Removed the optimization. Added a peephole2 that safely combines `andi.l #$ffff` + `clr.w` into `moveq #0` instead.
+
+**Lesson:** When reasoning about what bits an instruction "preserves", consider *all* bits it affects. `andi.l #$ffff` doesn't just preserve the low word — it actively clears the high word.
+
 ---
 
 ## 5. Common Pitfalls in Custom Passes

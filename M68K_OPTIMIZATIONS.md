@@ -314,13 +314,15 @@ muls.w  #320,d0
 
 ## 7. ANDI Hoisting
 
-Replaces `andi.l #mask` or `andi.w #mask` for zero-extension with a hoisted `moveq #0` and register moves. This also optimizes explicit masking operations.
+Replaces `andi.l #mask` or `andi.w #mask` for zero-extension with a hoisted `moveq #0` and register moves. This also optimizes explicit masking operations. A peephole2 combines `andi.l #$ffff` + `clr.w` into a single `moveq #0`.
 
 **Pass:** `m68k-elim-andi` (new RTL pass)
 
+**Patterns:** `define_peephole2` for `andi.l #$ffff` + `clr.w` → `moveq #0`
+
 Disable with: `-mno-m68k-elim-andi`
 
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`
+**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
 
 ### Implementation history
 
@@ -328,6 +330,8 @@ Disable with: `-mno-m68k-elim-andi`
 2. **Loop hoisting fix** (`ec328e3263e`): Corrected hoisting of the pre-clearing `moveq #0` out of loops. The zero register must be established before the definition that feeds the `andi`, which may be a loop-carried value.
 3. **clr.w+move.b scan continuation** (`5d9c5565653`): The backward scan stopped at `DEFINES_BYTE` (e.g., `move.b`), missing a preceding `clr.w` that could be widened to `moveq #0`. For `WORD_TO_LONG` candidates, the scan now continues past byte definitions to find word-level definitions. When it finds `clr.w`, it widens it in-place to `moveq #0` (clearing all 32 bits), making the later `andi.l #65535` redundant.
 4. **and.w mask widening** (`5d9c5565653`): When the backward scan reaches function entry with no definition but finds `and.w #N` along the way (e.g., masking a parameter), the pass widens `and.w #N` to `and.l #N`. This clears bits 16-31 as a side effect, eliminating the later `andi.l #65535`.
+5. **clr.w-follows-andi bugfix** (`c7ec36f7730`): Removed `clrw_follows_andi_p`, which incorrectly deemed `andi.l #$ffff` redundant when `clr.w` followed. The reasoning was "andi only preserves low bits that clr.w will clear", but `andi.l #$ffff` *also* clears the high word (bits 16-31). Deleting it left the high word as garbage — producing wrong values when the register was later used in SImode (e.g., `move.l dN,d0` for a 4-byte struct argument like `point_s{0,0}`). Found via a game binary miscompilation where `clr.w d5` was generated instead of `clr.l d5`.
+6. **andi+clr.w peephole** (`c7ec36f7730`): Added a `define_peephole2` that combines `andi.l #$ffff` + `clr.w` into a single `moveq #0`. With `-mshort`, struct zeroing (e.g., `point_s{0,0}`) generates both instructions to clear all 32 bits — the peephole replaces 10 bytes / 28 cycles with 2 bytes / 4 cycles.
 
 ### How it works
 
@@ -370,6 +374,7 @@ move.b  (a0)+,d0             ; upper bits stay zero
 - `test_cross_bb_loop()` — definition before loop
 - `test_andi_clrw_byte_def()` — `clr.w`+`move.b` pattern: scan past byte def to find widenable `clr.w`
 - `test_andi_widen_mask()` — `and.w #N` widening: widen to `and.l #N` to eliminate later `andi.l #65535`
+- `test_clr_struct_arg()` — regression test: struct zero arg must clear all 32 bits, not just low word
 
 ---
 

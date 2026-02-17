@@ -1177,4 +1177,35 @@ extern "C" {
         return s - start - 1;
     }
 
+    /* test_clr_struct_arg - struct zero arg must clear all 32 bits
+     * Regression test for miscompilation where andi.l #$ffff + clr.w
+     * was incorrectly reduced to just clr.w, leaving garbage in the
+     * high word of a 4-byte struct passed by register.
+     *
+     * The struct point_s{short x, short y} is 4 bytes (SImode).
+     * point_s{0,0} must produce a full 32-bit zero (moveq #0 or clr.l),
+     * not just clr.w which only clears the low 16 bits.
+     */
+    struct point_s { short x, y; };
+
+    extern void __attribute__((noinline))
+    use_point(void* canvas, void* image, void* rect, point_s p);
+
+    extern void* __attribute__((noinline)) alloc_obj();
+    extern short __attribute__((noinline)) get_count(void* obj);
+    extern void __attribute__((noinline))
+    draw_tile(void* canvas, void* tile, short idx, point_s at, int color);
+
+    void __attribute__((noinline))
+    test_clr_struct_arg(void* data, void* tiles, void* rect, short n) {
+        for (short i = 0; i < n; ++i) {
+            void* obj = alloc_obj();
+            use_point(obj, data, rect, point_s{0, 0});
+            short count = get_count(tiles);
+            for (short j = 0; j < count; ++j) {
+                draw_tile(obj, tiles, j, point_s{(short)j, (short)i}, -1);
+            }
+        }
+    }
+
 }

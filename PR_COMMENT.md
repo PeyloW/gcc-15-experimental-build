@@ -62,13 +62,15 @@ Disable with: `-mno-m68k-narrow-index-mult`
 
 ## 7. ANDI Hoisting
 
-Replaces repeated `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. The `moveq` is placed outside the loop, and each zero-extension becomes a simple `move.b` into the pre-cleared register. Also handles `clr.w`+`move.b` sequences (widen `clr.w` to `moveq #0`) and widens `and.w #N` to `and.l #N` when that eliminates a later `andi.l #65535`.
+Replaces repeated `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. The `moveq` is placed outside the loop, and each zero-extension becomes a simple `move.b` into the pre-cleared register. Also handles `clr.w`+`move.b` sequences (widen `clr.w` to `moveq #0`) and widens `and.w #N` to `and.l #N` when that eliminates a later `andi.l #65535`. A peephole2 combines `andi.l #$ffff` + `clr.w` into a single `moveq #0` for struct zeroing patterns.
 
 Disable with: `-mno-m68k-elim-andi`
 
 **Pass:** `m68k-elim-andi` (new RTL pass)
 
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`
+**Patterns:** `define_peephole2` for `andi.l #$ffff` + `clr.w` → `moveq #0`
+
+**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
 
 ## 8. Word Packing and Insert Patterns
 
