@@ -1177,6 +1177,41 @@ extern "C" {
         return s - start - 1;
     }
 
+    /* ==========================================================================
+     * SYNTH_MULT REGRESSION TEST CASES
+     *
+     * GCC's synth_mult replaces multiply-by-constant with shift+add sequences.
+     * With the rewritten cost model, multiply instructions appear expensive
+     * relative to shifts/adds, causing aggressive open-coding even for
+     * constants with many set bits (e.g., division-by-3 reciprocal 0xAAAB).
+     *
+     * These tests verify the generated code for representative constants:
+     *   - Division reciprocals (0xAAAB, 0xCCCD) — worst bloat, 9+ set bits
+     *   - Simple constants (*3, *12) — should always be open-coded
+     *   - Complex constants (*138) — borderline cases
+     * ========================================================================== */
+
+    /* test_div3_byte - unsigned byte division by 3 via reciprocal multiply
+     * C division by 3 becomes: mulu.w #0xAAAB (43691), then lsr.l #17.
+     * On 68020+, stock GCC uses a single 4-byte mulu.w instruction.
+     * synth_mult may replace this with 11+ instructions of shifts+adds.
+     * Expected: mulu.w #0xAAAB (or at most a short shift+add sequence)
+     */
+    unsigned char __attribute__((noinline))
+    test_div3_byte(unsigned char x) {
+        return x / 3;
+    }
+
+    /* test_div5_byte - unsigned byte division by 5 via reciprocal multiply
+     * C division by 5 becomes: mulu.w #0xCCCD (52429), then lsr.l #18.
+     * Same concern as div3: 0xCCCD has 10 set bits → severe open-coding.
+     * Expected: mulu.w #0xCCCD (or at most a short shift+add sequence)
+     */
+    unsigned char __attribute__((noinline))
+    test_div5_byte(unsigned char x) {
+        return x / 5;
+    }
+
     /* test_clr_struct_arg - struct zero arg must clear all 32 bits
      * Regression test for miscompilation where andi.l #$ffff + clr.w
      * was incorrectly reduced to just clr.w, leaving garbage in the

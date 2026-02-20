@@ -45,6 +45,14 @@ generate "Os_short" "-Os -mshort"
 generate "O2_68030" "-O2 -m68030"
 generate "Os_68030" "-Os -m68030"
 
+# 68060 variants
+generate "O2_68060" "-O2 -m68060"
+generate "Os_68060" "-Os -m68060"
+
+# ColdFire variants
+generate "O2_cf" "-O2 -mcpu=5475"
+generate "Os_cf" "-Os -mcpu=5475"
+
 # Count instruction lines for comparison
 # Instructions start with a tab followed by a letter (excludes labels, directives, comments)
 count_instructions() {
@@ -55,10 +63,10 @@ echo ""
 echo "Assembly Instruction Count Comparison"
 echo "======================================"
 echo ""
-printf "%-25s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff" "Diff%"
-printf "%-25s %8s %8s %8s %8s\n" "-------" "---" "---" "----" "-----"
+printf "%-30s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff" "Diff%"
+printf "%-30s %8s %8s %8s %8s\n" "-------" "---" "---" "----" "-----"
 
-for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030"; do
+for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030" "O2 -m68060:O2_68060" "Os -m68060:Os_68060" "O2 -mcpu=5475:O2_cf" "Os -mcpu=5475:Os_cf"; do
     display_name="${variant%%:*}"
     suffix="${variant##*:}"
 
@@ -74,7 +82,7 @@ for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -
         else
             pct="0.0"
         fi
-        printf "%-25s %8d %8d %8d %7s%%\n" "$display_name" "$old_count" "$new_count" "$diff" "$pct"
+        printf "%-30s %8d %8d %8d %7s%%\n" "$display_name" "$old_count" "$new_count" "$diff" "$pct"
     fi
 done
 
