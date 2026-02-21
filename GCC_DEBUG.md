@@ -145,7 +145,7 @@ The fastest test: each custom pass has a `-mno-*` flag. Disable one at a time to
 | `-mno-m68k-reorder-mem` | Memory access reordering | 5.123a |
 | `-mno-m68k-elim-andi` | ANDI elimination / zero-extend hoisting | 9.19b |
 | `-mno-m68k-highword-opt` | Word packing optimization | 9.19a |
-| `-mno-m68k-ira-promote` | IRA register class promotion | 8.1 |
+| `-mno-m68k-ira-promote` | IRA register class promotion + register move cost | 8.1 |
 | `-mno-m68k-insn-cost` | Instruction cost hook (destination cost) | All costing |
 | `-mno-m68k-btst-extract` | Single-bit btst+sne extraction | 9.14 |
 | `-mno-m68k-avail-copy-elim` | Available copy elimination | 7.29a |

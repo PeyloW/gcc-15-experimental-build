@@ -20,7 +20,7 @@ A PR-ready version of this document is available in [PR_COMMENT.md](PR_COMMENT.m
 6. [Multiplication Optimization](#6-multiplication-optimization)
 7. [ANDI Hoisting](#7-andi-hoisting)
 8. [Word Packing and Insert Patterns](#8-word-packing-and-insert-patterns)
-9. [IRA Register Class Promotion](#9-ira-register-class-promotion)
+9. [IRA Register Allocation Improvements](#9-ira-register-allocation-improvements)
 10. [Improved Loop Unrolling](#10-improved-loop-unrolling)
 11. [Memory Access Reordering](#11-memory-access-reordering)
 12. [Single-Bit Extraction](#12-single-bit-extraction)
@@ -55,6 +55,8 @@ The cost model was developed in several stages:
 2. **Store costing bug** (`98264372b75`): Discovered that only the source operand was being costed. `move.b 1(a0),d0` was undercounted to 8 cycles (should be 12), and `move.b d0,1(a0)` even worse at 4. Added `TARGET_INSN_COST` to cost the full `(set dst src)` pattern.
 3. **Double-counting fix** (`98264372b75`): On 68020, nested RTX inside MEM were counted twice — once as standalone arithmetic and once as addressing mode. Fixed by recognizing address sub-expressions.
 4. **Non-RMW detection** (`97c42dbf01a`): `(set (mem) (plus reg const))` where reg is not the memory base is NOT a single instruction — it requires copy+op+store (3 insns). Without additive costing, `combine` and `late_combine` fold IV chains into base+offset form.
+5. **68020+/68040 cost quality** (`d7daf76243b`, `2420a27fd56`): Improved cost tables for 68020-030 and 68040+ to match the precision of the 68000 tables. Fixed overcounted multiplication on 68020+ and corrected addressing mode costs for the pipelined processors.
+6. **Shift cost SUBREG fix** (`1dfd466f515`): Fixed shift cost calculation to handle `SUBREG` operands (e.g., a HImode subreg of an SImode register), which previously fell through to the default cost path.
 
 ### Examples
 
@@ -443,25 +445,28 @@ swap    d0
 
 ---
 
-## 9. IRA Register Class Promotion
+## 9. IRA Register Allocation Improvements
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. On m68k, only address registers can serve as base registers, so IRA's default allocation can result in expensive register-to-register moves.
+Several changes improve IRA's register allocation quality for the m68k register architecture. Pointer pseudos are promoted from DATA_REGS to ADDR_REGS when used as memory base addresses. The `TARGET_REGISTER_MOVE_COST` hook penalizes DATA→ADDR moves, guiding IRA's graph coloring to prefer data registers for arithmetic values. A new IRA parameter deduplicates operand references to prevent frequency inflation.
 
-On 68000/68010, this promotion introduces a regression for NULL pointer checks: `tst.l` cannot operate on address registers, so the backend emits `cmp.w #0,%aN` (4 bytes, 12 cycles). A peephole2 fixes this by replacing the compare with `move.l %aN,%dN` (2 bytes, 4 cycles) when a scratch data register is available. The `move.l` sets CC identically to `cmp.w #0`, so the existing CC elision mechanism skips the subsequent `tst.l`. On 68020+ this is unnecessary since `tst.l %aN` is valid (2 bytes).
+On 68000/68010, IRA promotion introduces a regression for NULL pointer checks: `tst.l` cannot operate on address registers, so the backend emits `cmp.w #0,%aN` (4 bytes, 12 cycles). A peephole2 fixes this by replacing the compare with `move.l %aN,%dN` (2 bytes, 4 cycles) when a scratch data register is available. The `move.l` sets CC identically to `cmp.w #0`, so the existing CC elision mechanism skips the subsequent `tst.l`. On 68020+ this is unnecessary since `tst.l %aN` is valid (2 bytes).
 
 Disable with: `-mno-m68k-ira-promote`
 
-**Hook:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
+**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
 
 **Patterns:** `*cbranchsi4_areg_zero`, `*cbranchsi4_areg_zero_rev` (`define_insn`), address register zero test (`define_peephole2`)
 
-**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k.md`
+**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k_costs.cc` (`m68k_register_move_cost_impl()`), `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/params.opt`
 
 ### Implementation history
 
 1. **IRA promotion hook** (`595da26c5a1`): Added the `m68k_ira_change_pseudo_allocno_class` hook. When IRA is about to assign a pseudo-register to DATA_REGS but that pseudo is used as a memory base address (inside a MEM RTX), the hook promotes it to ADDR_REGS. This prevents the costly `move.l dN,aM` before every memory access.
 2. **Address register zero test** (`ea1920e44cf`): Added peephole2 + define_insn patterns to fix the NULL-check regression on 68000/68010 caused by IRA promotion. A naive peephole2 emitting separate `(set dN aN)` + `(branch on dN)` was undone by `cprop_hardreg` (9.18), which propagated the address register back and deleted the dead copy. The solution uses a parallel-with-clobber: the RTL still compares the address register `(eq %aN 0)`, but the `define_insn` output template emits `move.l %aN,%dN` and relies on CC elision to skip the `tst.l`. Since `cprop_hardreg` sees a comparison against `%aN` (not a copy to `%dN`), it has nothing to undo.
 3. **Redundant move elision** (`5d9c5565653`): The `*cbranchsi4_areg_zero` output template now checks `m68k_find_flags_value()` before emitting `move.l %aN,%dN`. When the preceding instruction (e.g., `move.l %aN,<mem>`) already sets CC for the address register, the move is skipped — the branch uses CC directly. Saves 2 bytes and 4 cycles per elided instance (15 instances in the game binary, all shared_ptr reference counting).
+4. **Register move cost** (`1dfd466f515`): Added `TARGET_REGISTER_MOVE_COST` hook, replacing the legacy `REGISTER_MOVE_COST` macro. Asymmetric cost: DATA→ADDR moves cost 3 (instead of the default 2), because values moved to address registers lose CC flag visibility — `add.l` on an address register does not set condition codes, so the compiler must insert separate `tst.l` instructions. The penalty guides IRA's graph coloring to prefer data registers for arithmetic, reducing unnecessary spills. Gated by `flag_m68k_ira_promote`. FP↔non-FP moves remain at cost 4.
+5. **IRA duplicate use dedup** (`1dfd466f515`): Added `--param=ira-ignore-duplicate-uses-in-insn=1` (default on for m68k). On m68k, `add.w %dN,%dN` lists the same register in two operand positions. Without dedup, IRA inflates the allocno frequency for that register, distorting thread priority during graph coloring and causing suboptimal register choices. The fix deduplicates operand references in `ira-build.cc` so each physical register is counted once per instruction.
+6. **HImode compare constraint reorder** (`1dfd466f515`): Moved `d,n` (data register vs immediate) to the first alternative for HI-mode compares in `m68k.md`. This biases IRA toward choosing data registers for HI-mode compare operands, complementing the register move cost penalty.
 
 ### How it works
 
@@ -522,12 +527,28 @@ if (cnt) cnt->count++;
     jeq     .done           ; uses CC from store
 ```
 
+Register move cost (inner loop of `test_matrix_add` at O2):
+
+```asm
+; Before (DATA→ADDR cost=2): arithmetic temp allocated to address register
+    move.l (%a1),%a2        ; load into ADDR reg
+    add.l  %d1,%a2          ; add via addr reg (no CC flags)
+    move.l %a2,(%a1)+       ; store back (extra movem.l save for a2)
+
+; After (DATA→ADDR cost=3): IRA prefers data register
+    move.l (%a1),%d0        ; load into DATA reg
+    add.l  %d1,%d0          ; add sets CC flags
+    move.l %d0,(%a1)+       ; store back (no extra save needed)
+```
+
 ### Test cases
 
 - `test_redundant_move()` — sum loop with pointer in correct register
 - `test_loop_moves()` — cast-heavy pointer arithmetic stays in address register
 - `test_null_ptr_loop()` — linked list NULL check uses `move.l` instead of `cmp.w #0` on 68000
 - `test_areg_zero_elide()` — store sets CC for address register, `move.l aN,dN` elided
+- `test_matrix_add()` — register move cost prevents arithmetic in address register
+- `test_matrix_mul()` — improved register allocation with dedup
 
 ---
 
@@ -858,70 +879,30 @@ int memcmp(const void *s1, const void *s2, size_t n) {
 
 ## Appendix B: Known Missing Optimizations
 
-The following optimizations are not yet implemented but would further improve m68k code generation.
+The following optimizations are not yet implemented but would further improve m68k code generation. A comprehensive analysis is in [notes/remaining-inefficiencies.md](notes/remaining-inefficiencies.md).
 
-### B.1 Cross-Basic-Block ANDI Hoisting
+### B.1 Residual `and.l #65535` After Word Operations
 
-The current ANDI hoisting optimization (§7) only works within a single basic block. When the same zero-extension pattern appears across multiple basic blocks (e.g., in different branches of an if-else), each block gets its own `moveq #0` instead of hoisting a single `moveq #0` to a dominating block.
+The ANDI hoisting pass (§7) handles single-BB cases well, but several patterns remain:
 
-```c
-if (cond) {
-    use(bytes[i] & 0xFF);
-} else {
-    use(bytes[j] & 0xFF);
-}
-```
-```asm
-; Current: repeated zero register in each branch
-.then:  moveq   #0,d2
-        move.b  (a0),d2
-        ...
-.else:  moveq   #0,d2
-        move.b  (a1),d2
-
-; Desired: hoisted zero register
-        moveq   #0,d2           ; once, before branch
-.then:  move.b  (a0),d2
-        ...
-.else:  move.b  (a1),d2
-```
+- **Cross-BB duplication:** When both branches of a conditional end with `and.l #65535` (e.g., `test_cross_bb_cond`), hoisting `moveq #0` before the branch point would eliminate both.
+- **Sequential word ops:** `subq.w` after a `move.w` load re-dirties bits 16-31, requiring a second `and.l #65535` that the backward scan does not eliminate because it stops at the word operation.
+- **MODIFIES_WORD barrier:** The backward scan stops at `add.w` even when an earlier `clr.w` could be widened to `moveq #0`.
 
 ### B.2 Redundant TST Elimination
 
 The m68k `move` instruction sets condition codes, but GCC often generates redundant `tst` instructions before branches. The `m68k-reorder-cc` pass (§14) addresses the common case where loads can be reordered so the tested register is loaded last, but the general case — where `move` and branch are separated by register allocation or instruction scheduling — remains.
 
-```c
-short x = get_value();
-if (x == 0) handle_zero();
-```
-```asm
-; Current: redundant tst
-        jsr     get_value
-        move.w  d0,d1           ; sets Z flag
-        tst.w   d1              ; redundant
-        beq.s   .handle_zero
+### B.3 32-bit Loop Down-Counting
 
-; Desired: tst eliminated
-        jsr     get_value
-        move.w  d0,d1           ; sets Z flag
-        beq.s   .handle_zero
-```
+When `int` is 32 bits, GCC generates up-counting loops with three loop-control instructions (`addq.l #1 / cmp.l / jne`) instead of the optimal two (`subq.l #1 / jne`). This is GCC's internal loop canonicalization choosing an up-counting IV — the m68k backend has no hook to influence this choice. Affects 6+ functions at O2 without `-mshort`. The `-mshort` variants avoid this entirely because 16-bit counters use `dbra`.
 
-### B.3 16-bit Register Spills (RESOLVED)
+### B.4 Read-Modify-Write with Auto-Increment
+
+The m68k supports `add.w %dN,(%aN)+` as a single instruction, but GCC generates a three-instruction load/add/store sequence instead. The RTL representation for read-modify-write with auto-increment is complex because the auto-increment side-effect conflicts with the implicit read. A peephole2 could potentially collapse the sequence.
+
+### B.5 16-bit Register Spills (RESOLVED)
 
 **Spill slot sizing** is handled by the `TARGET_LRA_SPILL_SLOT_MODE` hook. HImode/QImode pseudos now get narrow stack slots.
 
-**Swap-based spill replacement** was investigated and rejected. The idea: replace a spill/reload pair with two `swap` instructions, parking the 16-bit value in the upper half of the same data register.
-
-```asm
-; Before (~32 cycles)               ; Proposed (8 cycles)
-        move.w  d2,offset(sp)               swap    d2
-        ... use d2.w ...                     ... use d2.w ...
-        move.w  offset(sp),d2               swap    d2
-```
-
-A prototype pass was implemented and tested against all of libcmini — zero matches. The pattern never occurs because:
-
-1. **The RA spills for width, not pressure.** It frees a register to use it in SImode (32-bit pointer math, float ops, `move.l`), which clobbers the upper half.
-2. **m68k has too many registers.** 8 data + 5 address registers all hold HImode. Within-BB pressure rarely forces narrow spills.
-3. **Cross-BB reloads use different registers.** The RA assigns spill and reload to different hard registers.
+**Swap-based spill replacement** was investigated and rejected. A prototype pass tested against all of libcmini produced zero matches — the RA spills for width (not pressure), m68k has enough registers, and cross-BB reloads use different registers.

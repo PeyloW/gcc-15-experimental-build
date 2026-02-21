@@ -336,7 +336,7 @@ This is the hardest constraint in the entire pipeline. Every optimization before
 
 Register 42 → `a0` (address register, because it's used as a memory base), register 44 → `d0` (data register, because it holds a byte value).
 
-**m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-class-promotion).
+**m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
 
 **Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — reload), `gcc/ira-costs.cc` (cost computation)
 
@@ -579,7 +579,7 @@ IRA's allocator works in two phases:
 1. **Coloring:** Assign registers using graph coloring (`color()` in `gcc/ira-color.cc`). Pseudo-registers that interfere (are live at the same time) get different colors (physical registers).
 2. **Spilling:** When coloring fails (not enough registers), pick the least-costly pseudo to spill to memory (`assign_hard_reg()` in `gcc/ira-color.cc`).
 
-**m68k hook:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS` (`m68k_ira_change_pseudo_allocno_class()` in `gcc/config/m68k/m68k.cc`) promotes pseudos used as memory bases from `DATA_REGS` to `ADDR_REGS`, avoiding costly data→address register moves.
+**m68k hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS` promotes pseudos used as memory bases from `DATA_REGS` to `ADDR_REGS`, avoiding costly data→address register moves. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves (cost 3 vs default 2), because values in address registers lose CC flag visibility — guiding IRA to prefer data registers for arithmetic. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
 
 **Files:** `gcc/ira.cc`, `gcc/ira-color.cc`, `gcc/ira-lives.cc`, `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — constraint-based reload)
 

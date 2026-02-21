@@ -84,19 +84,19 @@ Disable with: `-mno-m68k-highword-opt`
 
 **Code:** `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
 
-## 9. IRA Register Class Promotion
+## 9. IRA Register Allocation Improvements
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses, preventing expensive `move.l dN,aM` copies on every memory access.
+Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves (cost=3 vs default 2), guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from instructions like `add.w %dN,%dN` that list the same register twice.
 
 On 68000/68010, a peephole2 fixes the resulting NULL-check regression (`cmp.w #0,%aN` → `move.l %aN,%dN` with CC elision). The output template also checks if CC is already valid from a preceding instruction (e.g., a store), skipping the move entirely.
 
 Disable with: `-mno-m68k-ira-promote`
 
-**Hook:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
+**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
 
 **Patterns:** `*cbranchsi4_areg_zero` (`define_insn`), address register zero test (`define_peephole2`)
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`
 
 ## 10. Improved Loop Unrolling
 

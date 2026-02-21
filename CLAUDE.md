@@ -39,6 +39,10 @@ This compares assembly output between the system compiler (old) and the built co
 - `-Os -mshort` - Size optimization with 16-bit int
 - `-O2 -m68030` - Standard optimization for 68030
 - `-Os -m68030` - Size optimization for 68030
+- `-O2 -m68060` - Standard optimization for 68060
+- `-Os -m68060` - Size optimization for 68060
+- `-O2 -mcpu=5475` - Standard optimization for ColdFire
+- `-Os -mcpu=5475` - Size optimization for ColdFire
 
 After making changes to `gcc/config/m68k/` files, run the test suite again. Existing tests MUST NOT regress compared to this branch before new changes.
 
