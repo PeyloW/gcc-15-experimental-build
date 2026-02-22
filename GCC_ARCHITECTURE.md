@@ -318,7 +318,7 @@ The unroller also controls *IV splitting*: by default, unrolled copies use base+
 
 ### 7. Register Allocation
 
-**What happens:** [IRA](GCC_GLOSSARY.md#ira) (Integrated Register Allocator, [Phase 8](GCC_PASSES.md#phase-8-register-allocation)) maps virtual registers to physical ones. On m68k: `d0`–`d7` (data), `a0`–`a6` (address), `fp0`–`fp7` (float). When there aren't enough registers, values are *spilled* to the stack.
+**What happens:** [IRA](GCC_GLOSSARY.md#ira) (Integrated Register Allocator, [Phase 8](GCC_PASSES.md#phase-8-register-allocation)) maps virtual registers to physical ones. On m68k: `d0`–`d7` (data), `a0`–`a6` (address), `fp0`–`fp7` (float). When there aren't enough registers, values are *spilled* to the stack. After IRA's global allocation, [LRA](GCC_GLOSSARY.md#lra) (Local Register Allocator) resolves remaining constraints through iterative elimination — m68k now defaults to LRA over the legacy reload pass (`-mno-lra` to revert). See [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator).
 
 This is the hardest constraint in the entire pipeline. Every optimization before RA works with unlimited registers; after RA, everything must fit in 15 integer registers (8 data + 7 address, since `a7` is SP).
 
@@ -338,7 +338,7 @@ Register 42 → `a0` (address register, because it's used as a memory base), reg
 
 **m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
 
-**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — reload), `gcc/ira-costs.cc` (cost computation)
+**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — m68k default), `gcc/reload.cc` (legacy reload — `-mno-lra`), `gcc/ira-costs.cc` (cost computation)
 
 **Cross-ref:** [Foundation Passes: IRA](#6-ira-register-allocation)
 

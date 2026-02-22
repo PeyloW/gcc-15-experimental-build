@@ -31,8 +31,11 @@ generate() {
     # Old (system compiler)
     m68k-atari-mintelf-gcc $COMMON_FLAGS $flags -fno-inline -S "$SOURCE" -o "$OUTPUT_DIR/${suffix}_old.s" 2>/dev/null || true
 
-    # New (built compiler)
+    # New (built compiler, LRA is default)
     ./build-host/gcc/xgcc -B./build-host/gcc $COMMON_FLAGS $flags -fno-inline -S "$SOURCE" -o "$OUTPUT_DIR/${suffix}_new.s" 2>/dev/null || true
+
+    # Reload (built compiler with legacy reload)
+    ./build-host/gcc/xgcc -B./build-host/gcc $COMMON_FLAGS $flags -mno-lra -fno-inline -S "$SOURCE" -o "$OUTPUT_DIR/${suffix}_reload.s" 2>/dev/null || true
 }
 
 # Generate for different optimization levels
@@ -63,8 +66,8 @@ echo ""
 echo "Assembly Instruction Count Comparison"
 echo "======================================"
 echo ""
-printf "%-30s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff" "Diff%"
-printf "%-30s %8s %8s %8s %8s\n" "-------" "---" "---" "----" "-----"
+printf "%-22s %8s %8s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff%" "Reload" "Reldiff" "Rel%"
+printf "%-22s %8s %8s %8s %8s %8s %8s\n" "-------" "---" "---" "-----" "------" "-------" "----"
 
 for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030" "O2 -m68060:O2_68060" "Os -m68060:Os_68060" "O2 -mcpu=5475:O2_cf" "Os -mcpu=5475:Os_cf"; do
     display_name="${variant%%:*}"
@@ -72,6 +75,7 @@ for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -
 
     old_file="$OUTPUT_DIR/${suffix}_old.s"
     new_file="$OUTPUT_DIR/${suffix}_new.s"
+    reload_file="$OUTPUT_DIR/${suffix}_reload.s"
 
     if [ -f "$old_file" ] && [ -f "$new_file" ]; then
         old_count=$(count_instructions "$old_file")
@@ -82,7 +86,20 @@ for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -
         else
             pct="0.0"
         fi
-        printf "%-30s %8d %8d %8d %7s%%\n" "$display_name" "$old_count" "$new_count" "$diff" "$pct"
+
+        # Reload columns (compare Reload vs New)
+        if [ -f "$reload_file" ]; then
+            reload_count=$(count_instructions "$reload_file")
+            reload_diff=$((reload_count - new_count))
+            if [ "$new_count" -gt 0 ]; then
+                reload_pct=$(awk "BEGIN {printf \"%.1f\", ($reload_diff / $new_count) * 100}")
+            else
+                reload_pct="0.0"
+            fi
+            printf "%-22s %8d %8d %7s%% %8d %8d %6s%%\n" "$display_name" "$old_count" "$new_count" "$pct" "$reload_count" "$reload_diff" "$reload_pct"
+        else
+            printf "%-22s %8d %8d %7s%% %8s %8s %6s\n" "$display_name" "$old_count" "$new_count" "$pct" "ERR" "-" "-"
+        fi
     fi
 done
 

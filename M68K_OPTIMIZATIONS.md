@@ -27,6 +27,7 @@ A PR-ready version of this document is available in [PR_COMMENT.md](PR_COMMENT.m
 13. [Available Copy Elimination](#13-available-copy-elimination)
 14. [Load Reordering for CC Tracking](#14-load-reordering-for-cc-tracking)
 15. [Sibcall Optimization](#15-sibcall-optimization)
+16. [LRA Register Allocator](#16-lra-register-allocator)
 
 **Appendix**
 
@@ -189,6 +190,7 @@ Combines adjacent small memory accesses into larger ones, and eliminates registe
 1. **Word merge** (`e66ddbf957a`): Adjacent `move.w` with consecutive post-increment or offsets are merged into a single `move.l`. Also handles offset+index addressing variants.
 2. **Offset+index merge** (`396797f5c35`): Extended merging to handle indexed addressing modes, not just plain register indirect.
 3. **Mem-to-mem optimization** (`3ace2ff7867`): On 68000, `move.b (a1)+,d0; move.b d0,(a0)+; jne .L` uses a register as intermediate. Since 68000 supports mem-to-mem moves, this collapses to `move.b (a1)+,(a0)+; jne .L` — saving one instruction and one register. The mem-to-mem move sets CC, so the branch can test it directly.
+4. **RMW with post-increment** (`c3ff97bed99`): Added `define_insn` and `define_peephole2` patterns for read-modify-write with post-increment addressing: `add/sub/and/or/eor.x dN,(aN)+`. The peephole collapses `move.x (aN),dT; op dS,dT; move.x dT,(aN)+` into a single `op.x dS,(aN)+` when the temporary register is dead. Uses code iterators (`rmw_op`, `rmw_comm_op`) to cover all five ALU operations and both commutative operand orderings. 68000 only — ColdFire lacks these addressing modes.
 
 ### Examples
 
@@ -201,6 +203,11 @@ Combines adjacent small memory accesses into larger ones, and eliminates registe
     move.b  (a1)+,d0                move.b  (a1)+,(a0)+
     move.b  d0,(a0)+                jne     .L
     jne     .L
+
+; Before (RMW postinc)          ; After (68000 only)
+    move.w  (a0),d1                 add.w   d0,(a0)+
+    add.w   d0,d1
+    move.w  d1,(a0)+
 ```
 
 ### Test cases
@@ -467,6 +474,7 @@ Disable with: `-mno-m68k-ira-promote`
 4. **Register move cost** (`1dfd466f515`): Added `TARGET_REGISTER_MOVE_COST` hook, replacing the legacy `REGISTER_MOVE_COST` macro. Asymmetric cost: DATA→ADDR moves cost 3 (instead of the default 2), because values moved to address registers lose CC flag visibility — `add.l` on an address register does not set condition codes, so the compiler must insert separate `tst.l` instructions. The penalty guides IRA's graph coloring to prefer data registers for arithmetic, reducing unnecessary spills. Gated by `flag_m68k_ira_promote`. FP↔non-FP moves remain at cost 4.
 5. **IRA duplicate use dedup** (`1dfd466f515`): Added `--param=ira-ignore-duplicate-uses-in-insn=1` (default on for m68k). On m68k, `add.w %dN,%dN` lists the same register in two operand positions. Without dedup, IRA inflates the allocno frequency for that register, distorting thread priority during graph coloring and causing suboptimal register choices. The fix deduplicates operand references in `ira-build.cc` so each physical register is counted once per instruction.
 6. **HImode compare constraint reorder** (`1dfd466f515`): Moved `d,n` (data register vs immediate) to the first alternative for HI-mode compares in `m68k.md`. This biases IRA toward choosing data registers for HI-mode compare operands, complementing the register move cost penalty.
+7. **Allocno class narrowing** (`e6b6d6f65ae`): Fixed overly aggressive promotion to address registers for pseudos in chains. When IRA's cost analysis determines DATA_REGS is best but the allocno class was widened to GENERAL_REGS, the hook now narrows it back to DATA_REGS. Without this, IRA's thread coalescing can pull data-register-preferring pseudos into address registers, forcing reload to insert a copy through a data register.
 
 ### How it works
 
@@ -833,6 +841,35 @@ short appl_bvset(short bvdisk, short bvhard) {
 
 ---
 
+## 16. LRA Register Allocator
+
+GCC provides two register allocators that run after IRA's global allocation: **reload** (legacy, constraint-based patching) and **LRA** (Local Register Allocator, constraint-driven with iterative elimination). LRA has been GCC's default for most targets since GCC 5, but m68k was never switched — until now.
+
+**Code:** `gcc/config/m68k/m68k.h` (`-mlra` Init(1)), `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
+
+### Implementation history
+
+1. **LRA as default** (`539281eb0b8`): Switched m68k to use LRA by default (`-mlra` Init(1)). The legacy reload allocator remains available via `-mno-lra`. Fire Flight binary reduced by 1126 bytes (1.6%) — significant for a real-world game. For most simple functions LRA and reload produce equivalent code; LRA wins on complex register-pressure scenarios.
+
+2. **Canonical scaled index pass** (`539281eb0b8`): Added `m68k_pass_canon_scaled_index` (pass 7.29b in [GCC_PASSES.md](GCC_PASSES.md)), which rewrites 3-register scaled index addresses `(base + index * scale + offset)` into the canonical `(plus (plus (ashift idx scale) base) offset)` form before LRA sees them. Without this, LRA cannot match these addresses against the `*lea` pattern and falls back to multi-instruction sequences.
+
+3. **Tablejump UNSPEC patterns** (`539281eb0b8`): Replaced the `(d8,PC,Xn)` addressing in casesi tablejump with `UNSPEC_TABLEJUMP_LOAD`. LRA requires an address register for the index in `(d8,PC,Xn)`, but the jump table index is naturally in a data register. The UNSPEC avoids the constraint conflict by hiding the addressing mode from the allocator — the output template emits the correct assembly directly.
+
+4. **Mulhi3 constraint tightening** (`539281eb0b8`): Tightened `smulhi3`/`umulhi3` register constraints to avoid LRA regressions. LRA's iterative approach is more sensitive to loose constraints than reload's single-pass patching.
+
+5. **LEA indexed displacement ICE fix** (`d9f2481eab9`): Fixed an ICE on 68000 and ColdFire where indexed addressing `(d8,An,Xn)` displacement exceeds the 8-bit signed limit after LRA eliminates the frame pointer (`vfp → sp + frame_size`). Added two `define_insn_and_split` patterns before `*lea`:
+
+   - `*lea_indexed_disp_scaled` — ColdFire only: handles `base + index * scale + displacement`
+   - `*lea_indexed_disp` — 68000 + ColdFire: handles `base + index + displacement`
+
+   Both use register/const constraints (not `"p"`) so LRA can always satisfy them. A C output block checks the displacement at assembly time: in-range values emit a single LEA; out-of-range values return `"#"`, triggering a post-reload split into `lea (An,Xn),dest` + `lea disp(dest),dest`. The 68020+ is unaffected (32-bit base displacement via full extension word).
+
+### Disable
+
+`-mno-lra` reverts to the legacy reload allocator.
+
+---
+
 ## Appendix A: libcmini Real-World Example
 
 The optimizations above combine to produce significant improvements in real library code. This example shows `memcmp` from libcmini, a minimal C library for Atari ST, when compiled with `-Os -mshort -mfastcall`.
@@ -897,12 +934,12 @@ The m68k `move` instruction sets condition codes, but GCC often generates redund
 
 When `int` is 32 bits, GCC generates up-counting loops with three loop-control instructions (`addq.l #1 / cmp.l / jne`) instead of the optimal two (`subq.l #1 / jne`). This is GCC's internal loop canonicalization choosing an up-counting IV — the m68k backend has no hook to influence this choice. Affects 6+ functions at O2 without `-mshort`. The `-mshort` variants avoid this entirely because 16-bit counters use `dbra`.
 
-### B.4 Read-Modify-Write with Auto-Increment
+### B.4 Read-Modify-Write with Auto-Increment (RESOLVED)
 
-The m68k supports `add.w %dN,(%aN)+` as a single instruction, but GCC generates a three-instruction load/add/store sequence instead. The RTL representation for read-modify-write with auto-increment is complex because the auto-increment side-effect conflicts with the implicit read. A peephole2 could potentially collapse the sequence.
+Resolved in §4 point 4 (`c3ff97bed99`). Added `define_insn` and `define_peephole2` patterns for `add/sub/and/or/eor.x dN,(aN)+`.
 
-### B.5 16-bit Register Spills (RESOLVED)
+### B.5 16-bit Register Spills
 
-**Spill slot sizing** is handled by the `TARGET_LRA_SPILL_SLOT_MODE` hook. HImode/QImode pseudos now get narrow stack slots.
+**Spill slot sizing:** LRA widens HImode/QImode spill slots to SImode. A `TARGET_LRA_SPILL_SLOT_MODE` hook could give narrow pseudos narrow stack slots, reducing frame size.
 
 **Swap-based spill replacement** was investigated and rejected. A prototype pass tested against all of libcmini produced zero matches — the RA spills for width (not pressure), m68k has enough registers, and cross-BB reloads use different registers.

@@ -408,6 +408,7 @@ Main optimization pipeline run on each function.
 | 7.28 | `pass_rtl_fwprop_addr` | RTL | Address forward propagation | - | Propagate address expressions |
 | 7.29 | `pass_inc_dec` | RTL | **Autoincrement/decrement** | - | **`(a0)` + `lea 4(a0),a0` → `(a0)+`** (m68k!) |
 | 7.29a | **`m68k_pass_avail_copy_elim`** | RTL | **Redundant copy elimination** | m68k | **Remove copies available on all paths** |
+| 7.29b | **`m68k_pass_canon_scaled_index`** | RTL | **Canonical scaled index** | m68k | **Rewrite 3-reg scaled addresses for LRA** |
 | 7.30 | `pass_initialize_regs` | RTL | Initialize uninitialized regs | - | Set undefined regs to 0 |
 | 7.31 | `pass_ud_rtl_dce` | RTL | Use-def RTL DCE | - | Remove dead code |
 | 7.32 | `pass_ext_dce` | RTL | Extension DCE | - | Remove dead extends |
@@ -436,7 +437,7 @@ Main optimization pipeline run on each function.
 | # | Pass | IR | Purpose | Related | Example |
 |---|------|----|---------|---------|---------|
 | 8.1 | `pass_ira` | RTL | **Integrated Register Allocator** | - | **Assign pseudo → d0-d7/a0-a6** |
-| 8.2 | `pass_reload` | RTL | **Reload pass** | - | **Spill/restore for constraints** |
+| 8.2 | `pass_reload` / `pass_lra` | RTL | **Constraint resolution** | - | **m68k defaults to LRA (`-mlra`); `-mno-lra` for reload** |
 
 ---
 
@@ -654,6 +655,7 @@ muls.w  #320,d0
 | `pass_rtl_doloop` (7.21) | Convert loops to `dbra` | `subq #1,dn; bne` → `dbra dn,loop` |
 | `pass_inc_dec` (7.29) | Auto-increment addressing | `move (a0); addq #4,a0` → `move (a0)+` |
 | `m68k_pass_avail_copy_elim` (7.29a) | Eliminate redundant copies | Remove copies available on all paths |
+| `m68k_pass_canon_scaled_index` (7.29b) | Canonical scaled index | Rewrite 3-reg scaled addresses for LRA |
 | `pass_combine` (7.33) | Instruction combining | `clr d0; move d0,(a0)` → `clr (a0)` |
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
 | `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
