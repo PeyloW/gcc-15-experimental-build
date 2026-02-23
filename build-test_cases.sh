@@ -19,7 +19,7 @@ echo "Generating assembly files for $SOURCE..."
 
 # Common flags for fastcall ABI
 # COMMON_FLAGS="-mfastcall -fpeel-loops -funroll-loops"
-COMMON_FLAGS="-mfastcall"
+COMMON_FLAGS="-mfastcall -fira-region=mixed"
 echo "Common flags: $COMMON_FLAGS"
 echo ""
 

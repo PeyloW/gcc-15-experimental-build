@@ -22,7 +22,7 @@ Disable step discount with: `-fno-ivopts-autoinc-step`
 
 ## 3. Autoincrement Optimization Pass
 
-Converts indexed memory accesses with incrementing offsets to post-increment addressing, both within and across basic blocks. Suppresses PRE self-loop edge splitting to keep tight loops in a single BB.
+Converts indexed memory accesses with incrementing offsets to post-increment addressing, both within and across basic blocks. Suppresses PRE self-loop edge splitting to keep tight loops in a single BB. All POST_INC creation points validate with `constrain_operands(1)` after `recog_memoized()`, since predicates accept POST_INC but constraint letters may not (e.g. `extendsidi2` allows `<` but not `>`).
 
 Disable with: `-mno-m68k-autoinc`
 
@@ -84,15 +84,19 @@ Disable with: `-mno-m68k-highword-opt`
 
 ## 9. IRA Register Allocation Improvements
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves, guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from `add.w %dN,%dN`. On 68000/68010, a peephole2 fixes the NULL-check regression with CC elision.
+Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Extended with deeper pointer-derivation analysis for LRA mode (`pseudo_pointer_derived_p`, `pseudo_only_addr_ops_p`), disabled on ColdFire where it causes LRA to corrupt the dominator tree. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves, guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from `add.w %dN,%dN`. On 68000/68010, a peephole2 fixes the NULL-check regression with CC elision.
 
-Disable with: `-mno-m68k-ira-promote`
+Budget-based pass-through merge (`-fira-merge-passthrough`, default on for m68k): in IRA's hierarchical allocator, pass-through allocnos (zero refs at child loop level) are merged with their parent to eliminate loop-boundary copies, but limited by a budget so enough remain as cheap spill candidates under register pressure.
+
+Disable promotion with: `-mno-m68k-ira-promote`
+
+Disable pass-through merge with: `-fno-ira-merge-passthrough`
 
 **Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
 
 **Patterns:** `*cbranchsi4_areg_zero` (`define_insn`), address register zero test (`define_peephole2`)
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/ira-color.cc`, `gcc/common.opt`
 
 ## 10. Improved Loop Unrolling
 

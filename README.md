@@ -61,6 +61,7 @@ See [GCC_DEBUG.md](GCC_DEBUG.md) for debugging workflows, or jump straight to th
 | [GCC_PASSES.md](GCC_PASSES.md) | Complete list of GCC 15 optimization passes in execution order, annotated with custom m68k additions. |
 | [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md) | Conceptual guide to how GCC transforms C source into m68k assembly. |
 | [GCC_DEBUG.md](GCC_DEBUG.md) | Practical guide for diagnosing regressions, miscompilations, and ICEs. |
+| [GCC_RTL_CANON.md](GCC_RTL_CANON.md) | GCC's RTL canonicalization rules — the canonical forms that backends must match. |
 | [GCC_GLOSSARY.md](GCC_GLOSSARY.md) | Glossary of GCC internal terms used across the other documents. |
 | [PR_COMMENT.md](PR_COMMENT.md) | Succinct PR description derived from M68K_OPTIMIZATIONS.md. |
 
@@ -70,7 +71,7 @@ See [GCC_DEBUG.md](GCC_DEBUG.md) for debugging workflows, or jump straight to th
 |--------|-------------|
 | [build-gcc.sh](build-gcc.sh) | Configure, build, install, or clean the cross-compiler. |
 | [build-test_cases.sh](build-test_cases.sh) | Compile `test_cases.cpp` with both compilers and compare instruction counts. |
-| [build-mikros.sh](build-mikros.sh) | Build 16 packages with both non-sjlj and sjlj compilers for integration testing. |
+| [build-mikros.sh](build-mikros.sh) | Build 17 packages with both non-sjlj and sjlj compilers for integration testing. |
 | [build-coremark.sh](build-coremark.sh) | Build CoreMark benchmark variants and compare results. |
 | [debug-asm-diff.sh](debug-asm-diff.sh) | Compare assembly output between stock GCC 15 and this branch for a single source file. |
 | [debug-bisect-passes.sh](debug-bisect-passes.sh) | Disable each m68k pass individually to find which one causes a regression or ICE. |

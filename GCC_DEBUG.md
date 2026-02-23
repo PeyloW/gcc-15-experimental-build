@@ -9,6 +9,8 @@ Practical guide for diagnosing regressions, miscompilations, and ICEs when worki
 3. [Inspecting Pass Output](#3-inspecting-pass-output)
 4. [Debugging ICE Errors](#4-debugging-ice-errors)
 5. [Common Pitfalls in Custom Passes](#5-common-pitfalls-in-custom-passes)
+6. [Debugging Register Allocation (IRA)](#6-debugging-register-allocation-ira)
+7. [Debugging LRA and Reload](#7-debugging-lra-and-reload)
 
 ---
 
@@ -469,6 +471,16 @@ rm -f build-host/gcc/s-peep build-host/gcc/s-tmp-recog build-host/gcc/s-tmp-emit
 
 **Violation symptom:** Peephole2 fires (visible in `-fdump-rtl-peephole2`) but the final assembly is unchanged. The cprop dump (`-fdump-rtl-cprop_hardreg`) shows "replaced reg N with M" and "deferring deletion of insn".
 
+### `recog_memoized` is not sufficient for constraint validation
+
+**Rule:** After modifying an insn's operands post-RA (e.g. converting a MEM to POST_INC), validate with `extract_insn()` + `constrain_operands(1, get_enabled_alternatives(insn))`, not just `recog_memoized()`. Use strict mode (`1`) since all operands are hard registers after register allocation.
+
+**Why:** `recog_memoized()` only checks operand predicates (e.g. `nonimmediate_operand`), which accept any MEM including POST_INC. It does not check constraint letters — `<` (pre-dec) and `>` (post-inc) are constraints, not predicates. A pattern like `extendsidi2` with constraints `"=d,o,o,<"` matches POST_INC via the predicate but rejects it at the constraint level.
+
+**Caveat:** `constrain_operands(0, ...)` (non-strict) can incorrectly accept a POST_INC MEM for a register constraint like `d`. Only `constrain_operands(1, ...)` (strict) correctly rejects it.
+
+**Violation symptom:** ICE in a later pass (typically `rnreg`) with "insn does not satisfy its constraints" in `extract_constrain_insn`.
+
 ### Cross-BB SSA (GIMPLE passes with sjlj exceptions)
 
 **Rule:** GIMPLE passes that chain SSA names across basic blocks must account for extra EH edges created by sjlj exceptions.
@@ -482,4 +494,263 @@ rm -f build-host/gcc/s-peep build-host/gcc/s-tmp-recog build-host/gcc/s-tmp-emit
 ```bash
 ./build-gcc.sh -sjlj build
 ```
+
+---
+
+## 6. Debugging Register Allocation (IRA)
+
+[IRA](GCC_GLOSSARY.md#ira) (Integrated Register Allocator, [Phase 8.1](GCC_PASSES.md#phase-8-register-allocation)) assigns pseudo-registers to physical registers via graph coloring. On m68k, the split register file (DATA_REGS `d0`–`d7`, ADDR_REGS `a0`–`a6`) makes IRA decisions particularly important — a pseudo in the wrong class forces a register-to-register copy on every use.
+
+### Getting IRA dumps
+
+```bash
+# Basic dump
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-ira -S test.c
+
+# With verbose coloring decisions (levels 0-5, higher = more detail)
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-ira -fira-verbose=5 -S test.c
+
+# Verbose to stderr for real-time watching (add 10 to level)
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-ira -fira-verbose=15 -S test.c 2>&1 | less
+```
+
+The dump file is named `<source>.NNNr.ira` (e.g. `test.c.312r.ira`).
+
+### m68k hard register numbers
+
+Dumps show hard register numbers, not names. The mapping for m68k:
+
+| Number | Register | Class |
+|--------|----------|-------|
+| 0–7 | `d0`–`d7` | DATA_REGS |
+| 8–14 | `a0`–`a6` | ADDR_REGS |
+| 15 | `sp` (`a7`) | ADDR_REGS |
+| 16–23 | `fp0`–`fp7` | FP_REGS |
+
+So `assign reg 8` means the pseudo was assigned to `a0`.
+
+### What to look for in the IRA dump
+
+#### Allocno cost table (`-fira-verbose=1`)
+
+```
+  a0(r78,b2) costs: DATA_REGS:1000,1000 ADDR_REGS:2000,2000 MEM:3000,3000
+```
+
+Format: `a<allocno>(r<pseudo>,b<bb>)` then `<class>:<cost>,<full_cost>` pairs. Lower cost = preferred. `MEM` = cost of spilling to stack. IRA picks the cheapest class — if DATA_REGS is cheapest, the pseudo will be colored from `d0`–`d7`.
+
+#### Disposition table (`-fira-verbose=1`)
+
+```
+Disposition:
+    0:r78 b2   0    1:r79 l0   8    2:r80 b3  mem    3:r81 b2   1
+```
+
+Format: `<allocno>:r<pseudo> b<bb>|l<loop> <hard_reg_or_mem>`. This is the final assignment. In this example: r78→d0, r79→a0, r80→spilled, r81→d1.
+
+#### Available registers and conflicts (`-fira-verbose=3`)
+
+```
+      Allocno a0r78 of DATA_REGS(8) has 5 avail. regs [d0 d1 d2 d3 d4],
+        node: [d0..d7] (confl regs = [d5 d6 d7])
+```
+
+Shows how many candidate registers remain after removing conflicts. If `avail. regs` is 0, the pseudo must spill.
+
+#### Coloring stack push/pop (`-fira-verbose=3`)
+
+```
+      Pushing a0(r78,b2)(cost 1000)
+      ...
+      Popping a1(r79,l0)  -- assign reg 8
+      Popping a0(r78,b2)  -- assign memory
+```
+
+IRA uses Chaitin-Briggs: push allocnos onto a stack (lowest priority first), then pop and assign. `assign memory` means the allocno couldn't be colored — it's spilled.
+
+#### Per-register costs (`-fira-verbose=5`)
+
+```
+      a2(r80) costs: 0:2000 1:2000 2:1500 ... 8:500 9:500 ...
+```
+
+Shows the cost of assigning the allocno to each hard register individually. Useful for understanding why IRA chose one register over another.
+
+### Cost summary
+
+```
++++Costs: overall 1234, reg 800, mem 434, ld 200, st 100, move 134
+```
+
+After LRA/reload completes:
+
+```
++++Overall after reload 1456
+```
+
+If the "after reload" cost is much higher than the "overall" cost, LRA/reload had to insert many spills.
+
+### IRA tuning flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `-fira-algorithm=CB` | CB | Chaitin-Briggs graph coloring (default) |
+| `-fira-algorithm=priority` | — | Priority-based coloring (alternative) |
+| `-fira-region=one` | one | RA over whole function |
+| `-fira-region=all` | — | RA per loop region |
+| `-fira-share-spill-slots` | on | Share stack slots between non-overlapping spills |
+| `-fira-merge-passthrough` | off (on for m68k) | Merge zero-ref pass-through allocnos with parent region (budget-limited) |
+
+### Example: diagnosing a wrong register class
+
+A pointer pseudo assigned to DATA_REGS forces `move.l dN,aM` copies before every memory access. To diagnose:
+
+1. Find the pseudo number from the assembly (`%d3` used as a base → pseudo was assigned to d3)
+2. Search the `*.ira` dump for `r<pseudo>` in the cost table
+3. Check if ADDR_REGS cost is higher than DATA_REGS cost — if so, IRA made the optimal choice given its information, and the fix is in the cost model or the `m68k_ira_change_pseudo_allocno_class` hook
+4. Check if the hook promoted the pseudo — search for the pseudo number in the hook's debug output (enabled with `-fdump-rtl-ira`)
+
+See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements) for the IRA promotion hook.
+
+---
+
+## 7. Debugging LRA and Reload
+
+After IRA assigns physical registers, a second pass resolves remaining constraint violations. m68k defaults to [LRA](GCC_GLOSSARY.md#lra) (`-mlra`); the legacy reload pass is available via `-mno-lra`. Both write to the same dump file. Reload is scheduled for removal in GCC 16.
+
+### Getting LRA / reload dumps
+
+```bash
+# LRA dump (default)
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-reload -fira-verbose=3 -S test.c
+
+# Old reload dump
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -mno-lra -fdump-rtl-reload -fira-verbose=3 -S test.c
+
+# Maximum LRA detail (verbose >= 7 dumps full insns at each step)
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-reload -fira-verbose=7 -S test.c
+```
+
+The dump file is named `<source>.NNNr.reload` (e.g. `test.c.313r.reload`). Both LRA and old reload write to this same file — the content differs depending on `-mlra` / `-mno-lra`.
+
+### Comparing LRA vs reload output
+
+```bash
+# Side-by-side assembly comparison
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -S test.c -o test-lra.s
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -mno-lra -S test.c -o test-reload.s
+diff -u test-lra.s test-reload.s
+```
+
+### LRA dump structure
+
+LRA works in multiple rounds. The dump is organized into labeled iterations:
+
+#### Constraint iterations
+
+```
+********** Local #1: **********
+
+      Choosing alt 1 in insn 42: {*movsi_m68k} (sp_off=0)
+         Considering alt=0 of insn 42: (0) =d (1) rmi  ...
+         Considering alt=1 of insn 42: (0) =a (1) rmi  ...
+      overall=5,losers=0,rld_nregs=0
+```
+
+LRA tries each alternative of each instruction and picks the best. `losers` = operands that don't match (need reloads). `rld_nregs` = reload registers needed. On m68k, this is where you see LRA choosing between data and address register alternatives.
+
+#### Assignment iterations
+
+```
+********** Assignment #1: **********
+
+	   Assign 2 to r99 (freq=1000)
+	 Trying 0: spill 78(freq=500) assign 0(cost=200)
+	 Assigning 3 to r100
+	 Reload r102 assignment failure
+```
+
+Shows LRA assigning hard registers to reload pseudos. `assignment failure` means LRA couldn't find a register — it will retry or spill in a subsequent round.
+
+#### Inheritance
+
+```
+********** Inheritance #1: **********
+
+EBB 0 1 3 4
+    Original reg change 78->103 (bb2):
+    Split reuse change 103->78:
+```
+
+LRA copies values across basic block boundaries to avoid reloading from the stack at each use. The EBB lines show extended basic block membership.
+
+#### Elimination
+
+```
+New elimination table:
+    Using elimination 64 to 15 now      [virtual frame pointer -> stack pointer]
+```
+
+Frame pointer elimination: virtual registers (like the frame pointer, register 64) are replaced by `sp + offset`. On m68k, this is where indexed displacements can exceed the 8-bit limit on 68000/ColdFire — the LEA ICE fix ([M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator)) handles this case.
+
+### Old reload dump structure
+
+When using `-mno-lra`, the `*.reload` dump contains different messages:
+
+```
+Reloads for insn # 42
+  Reload 0: reload_in (SI) = (reg:SI 80)
+    DATA_REGS, RELOAD_FOR_INPUT, ...
+Using reg 3 for reload 0
+Spilling for insn 55.
+Register 80 now on stack.
+```
+
+`Using reg N for reload M` shows which hard register was selected for each reload. `now on stack` means a pseudo was spilled.
+
+### What to search for in dumps
+
+| Search term | Meaning |
+|-------------|---------|
+| `Disposition:` | IRA's final register assignments (in `*.ira`) |
+| `assign memory` / `mem` | Pseudo spilled to stack |
+| `assign reg N` | Pseudo assigned to hard register N |
+| `memory is more profitable` | IRA chose memory because register cost exceeded memory cost |
+| `avail. regs` | Candidate hard registers after conflict removal |
+| `Choosing alt N` | LRA chose alternative N of an instruction pattern |
+| `assignment failure` | LRA could not assign a register to a reload pseudo |
+| `Spilling r` / `Spilling for insn` | A pseudo is being spilled (LRA / old reload) |
+| `elimination` | Frame pointer / arg pointer elimination |
+| `losers=` | Number of operands needing reloads in an instruction |
+
+### LRA tuning params
+
+| Param | Default | Purpose |
+|-------|---------|---------|
+| `--param=lra-max-considered-reload-pseudos=N` | 500 | Max reload pseudos considered during spilling |
+| `--param=lra-inheritance-ebb-probability-cutoff=N` | 40 | Min fall-through probability for inheritance EBB |
+| `-flra-remat` | on | CFG-sensitive rematerialization in LRA |
+
+### Example: diagnosing a spill
+
+A function has an unexpected `move.l %dN,-(sp)` / `move.l (sp)+,%dN` pair. To find why:
+
+1. Compile with `-fdump-rtl-ira -fdump-rtl-reload -fira-verbose=3`
+2. In the `*.ira` dump, search for the pseudo's allocno: `r<N>`. Check the cost table — is MEM cost close to the register cost? If so, IRA may have judged spilling acceptable.
+3. Check the disposition table — was the pseudo assigned a register by IRA, or was it already marked `mem`?
+4. If IRA assigned a register, check the `*.reload` dump for `Spilling` — LRA may have spilled it due to a constraint conflict that IRA didn't anticipate.
+5. In LRA's constraint output, look for `losers=` on the relevant insn — a nonzero value means LRA needed a reload register at that point, which may have triggered the spill.
+
+### Example: LRA vs reload regression
+
+When switching from `-mno-lra` to `-mlra` causes a code quality regression:
+
+1. Compare assembly: `diff test-lra.s test-reload.s`
+2. Identify the changed function and the extra instructions (usually spills or register copies)
+3. Dump both: `-fdump-rtl-reload -fira-verbose=3` with `-mlra` and `-mno-lra`
+4. Compare the `*.reload` dumps — look for different alternative choices (`Choosing alt N`) or different spill decisions
+5. Common causes on m68k:
+   - LRA chose a different instruction alternative that requires a register copy (fix: reorder alternatives in `m68k.md`)
+   - LRA's constraint iteration couldn't satisfy a `"p"` (address) constraint after frame pointer elimination (fix: use explicit register/const constraints — see the LEA ICE fix in [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator))
+   - LRA's inheritance inserted cross-BB copies that reload didn't need (usually acceptable — LRA's overall result is still better)
 

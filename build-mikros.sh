@@ -2,7 +2,7 @@
 set -o pipefail
 
 # ============================================================================
-# build-mikros.sh — Build 16 packages with both non-sjlj and sjlj compilers
+# build-mikros.sh — Build 17 packages with both non-sjlj and sjlj compilers
 # ============================================================================
 
 # --- Configuration ---
@@ -28,6 +28,7 @@ SDL_IMAGE_VERSION=SDL-1.2
 SDL_MIXER_VERSION=SDL-1.2
 USOUND_VERSION=main
 LIBCMINI_VERSION=master
+MINTLIB_VERSION=master
 ASAP_VERSION=7.0.0
 MPG123_VERSION=1.33.4
 UTHREAD_VERSION=main
@@ -45,6 +46,7 @@ LIBPNG_URL="https://download.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar
 SDL_IMAGE_URL="https://github.com/libsdl-org/SDL_image/archive/refs/heads/${SDL_IMAGE_VERSION}.tar.gz"
 USOUND_URL="https://raw.githubusercontent.com/mikrosk/usound/${USOUND_VERSION}/usound.h"
 LIBCMINI_URL="https://github.com/freemint/libcmini/archive/refs/heads/${LIBCMINI_VERSION}.tar.gz"
+MINTLIB_URL="https://github.com/freemint/mintlib/archive/refs/heads/${MINTLIB_VERSION}.tar.gz"
 SDL_MIXER_URL="https://github.com/mikrosk/SDL_mixer-1.2/archive/refs/heads/${SDL_MIXER_VERSION}.tar.gz"
 ASAP_URL="https://sourceforge.net/projects/asap/files/asap/${ASAP_VERSION}/asap-${ASAP_VERSION}.tar.gz/download"
 MPG123_URL="https://sourceforge.net/projects/mpg123/files/mpg123/${MPG123_VERSION}/mpg123-${MPG123_VERSION}.tar.bz2/download"
@@ -53,7 +55,7 @@ UTHREAD_URL="https://github.com/mikrosk/uthread/archive/refs/heads/${UTHREAD_VER
 # Package list (in build order)
 PKG_NAMES=(
     zlib gemlib LDG SDL-1.2 libxmp libxmp-lite physfs cflib
-    libcmini ASAP mpg123 uthread libpng usound SDL_image SDL_mixer
+    libcmini mintlib ASAP mpg123 uthread libpng usound SDL_image SDL_mixer
 )
 PKG_COUNT=${#PKG_NAMES[@]}
 
@@ -64,6 +66,7 @@ declare -a TIME_BUILD1 TIME_BUILD2 RESULT_BUILD1 RESULT_BUILD2
 DO_DOWNLOAD=true
 DO_BUILD1=true
 DO_BUILD2=true
+ONLY_PKG=""
 
 # --- Helper functions ---
 
@@ -83,7 +86,17 @@ parse_args() {
             --download) DO_DOWNLOAD=true ;;
             --build1)   DO_DOWNLOAD=true; DO_BUILD1=true ;;
             --build2)   DO_DOWNLOAD=true; DO_BUILD2=true ;;
-            *) die "Unknown argument: $arg (use --download, --build1, --build2)" ;;
+            --only=*)
+                ONLY_PKG="${arg#--only=}"
+                local found=false
+                for name in "${PKG_NAMES[@]}"; do
+                    if [ "$name" = "$ONLY_PKG" ]; then found=true; break; fi
+                done
+                if ! $found; then
+                    die "Unknown package '$ONLY_PKG'. Available: ${PKG_NAMES[*]}"
+                fi
+                ;;
+            *) die "Unknown argument: $arg (use --download, --build1, --build2, --only=<pkg>)" ;;
         esac
     done
 }
@@ -162,6 +175,7 @@ download_all() {
     idx=$((idx+1)); download_file "$PHYSFS_URL"        "$DOWNLOAD_DIR/physfs-${PHYSFS_VERSION}.tar.gz"         "$idx"
     idx=$((idx+1)); download_file "$CFLIB_URL"         "$DOWNLOAD_DIR/cflib-${CFLIB_VERSION}.tar.gz"           "$idx"
     idx=$((idx+1)); download_file "$LIBCMINI_URL"      "$DOWNLOAD_DIR/libcmini-${LIBCMINI_VERSION}.tar.gz"     "$idx"
+    idx=$((idx+1)); download_file "$MINTLIB_URL"       "$DOWNLOAD_DIR/mintlib-${MINTLIB_VERSION}.tar.gz"        "$idx"
     idx=$((idx+1)); download_file "$ASAP_URL"          "$DOWNLOAD_DIR/asap-${ASAP_VERSION}.tar.gz"             "$idx"
     idx=$((idx+1)); download_file "$MPG123_URL"        "$DOWNLOAD_DIR/mpg123-${MPG123_VERSION}.tar.bz2"        "$idx"
     idx=$((idx+1)); download_file "$UTHREAD_URL"       "$DOWNLOAD_DIR/uthread-${UTHREAD_VERSION}.tar.gz"       "$idx"
@@ -200,6 +214,7 @@ clean_build() {
     tar xf "$DOWNLOAD_DIR/physfs-${PHYSFS_VERSION}.tar.gz"
     tar xf "$DOWNLOAD_DIR/cflib-${CFLIB_VERSION}.tar.gz"
     tar xf "$DOWNLOAD_DIR/libcmini-${LIBCMINI_VERSION}.tar.gz"
+    tar xf "$DOWNLOAD_DIR/mintlib-${MINTLIB_VERSION}.tar.gz"
     tar xf "$DOWNLOAD_DIR/asap-${ASAP_VERSION}.tar.gz"
     tar xf "$DOWNLOAD_DIR/mpg123-${MPG123_VERSION}.tar.bz2"
     tar xf "$DOWNLOAD_DIR/uthread-${UTHREAD_VERSION}.tar.gz"
@@ -360,6 +375,11 @@ build_libcmini() {
     make PREFIX=${SYSROOT}/opt/libcmini BUILD_FAST=N BUILD_SOFT_FLOAT=N COMPILE_ELF=Y VERBOSE=yes
 }
 
+build_mintlib() {
+    cd "$WORK_DIR/build/mintlib-${MINTLIB_VERSION}"
+    make CROSS=yes CROSS_TOOL=${TOOL_PREFIX} prefix=${SYSROOT}/usr
+}
+
 build_asap() {
     cd "$WORK_DIR/build/asap-${ASAP_VERSION}"
 
@@ -489,11 +509,14 @@ build_all() {
     local funcs=(
         build_zlib build_gemlib build_ldg build_sdl
         build_libxmp build_libxmp_lite build_physfs build_cflib
-        build_libcmini build_asap build_mpg123 build_uthread
+        build_libcmini build_mintlib build_asap build_mpg123 build_uthread
         build_libpng build_usound build_sdl_image build_sdl_mixer
     )
 
     for i in $(seq 0 $((PKG_COUNT - 1))); do
+        if [ -n "$ONLY_PKG" ] && [ "${PKG_NAMES[$i]}" != "$ONLY_PKG" ]; then
+            continue
+        fi
         build_package $((i + 1)) "${PKG_NAMES[$i]}" "${funcs[$i]}" "$compiler"
     done
 }

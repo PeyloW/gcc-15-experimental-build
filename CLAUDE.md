@@ -73,6 +73,7 @@ After making changes to `gcc/config/m68k/` files, run the test suite again. Exis
 - `build/PR_COMMENT.md` - Succinct PR description (derived from M68K_OPTIMIZATIONS.md)
 - `build/GCC_PASSES.md` - Complete GCC pass list with m68k additions
 - `build/GCC_ARCHITECTURE.md` - Conceptual guide to GCC's transformation pipeline
+- `build/GCC_RTL_CANON.md` - RTL canonicalization rules (canonical forms for define_insn patterns)
 - `build/GCC_GLOSSARY.md` - Glossary of GCC internal terms
 - `build/GCC_DEBUG.md` - Debugging guide (pass dumps, ICE diagnosis, pitfalls)
 

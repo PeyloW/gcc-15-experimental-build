@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # build-coremark.sh — Build CoreMark benchmark for Atari MiNT
-# Produces 8 variants: {Os,O2} x {fastcall,no} x {default,experimental}
+# Produces 12 variants: {Os,O2} x {fastcall,no} x {default,experimental,experimental-reload}
+# Experimental-reload variants use -mno-lra (legacy reload) and are suffixed with 'r'.
 # Run from: ~/m68k-atari-mint-gcc/build/
 
 SRCDIR="$HOME/m68k-atari-mint-gcc"
@@ -43,7 +44,7 @@ do_build() {
         exit 1
     fi
 
-    echo "=== Building CoreMark (8 variants) ==="
+    echo "=== Building CoreMark (12 variants) ==="
 
     build_one() {
         local name="$1" opt="$2" fastcall="$3" cc="$4" extra="$5"
@@ -60,22 +61,34 @@ do_build() {
             OUTNAME="$name"
     }
 
-    #           name           opt    fastcall  compiler              extra
-    build_one  cm_os.tos      -Os    false     "$CC_DEFAULT"         ""
-    build_one  cm_ose.tos     -Os    false     "$CC_EXPERIMENTAL"    ""
-    build_one  cm_osf.tos     -Os    true      "$CC_DEFAULT"         ""
-    build_one  cm_osfe.tos    -Os    true      "$CC_EXPERIMENTAL"    ""
-    build_one  cm_o2.tos      -O2    false     "$CC_DEFAULT"         ""
-    build_one  cm_o2e.tos     -O2    false     "$CC_EXPERIMENTAL"    ""
-    build_one  cm_o2f.tos     -O2    true      "$CC_DEFAULT"         ""
-    build_one  cm_o2fe.tos    -O2    true      "$CC_EXPERIMENTAL"    ""
+    #           name            opt    fastcall  compiler              extra
+    build_one  cm_os.tos       -Os    false     "$CC_DEFAULT"         ""
+    build_one  cm_ose.tos      -Os    false     "$CC_EXPERIMENTAL"    ""
+    build_one  cm_oser.tos     -Os    false     "$CC_EXPERIMENTAL"    "-mno-lra"
+    build_one  cm_osf.tos      -Os    true      "$CC_DEFAULT"         ""
+    build_one  cm_osfe.tos     -Os    true      "$CC_EXPERIMENTAL"    ""
+    build_one  cm_osfer.tos    -Os    true      "$CC_EXPERIMENTAL"    "-mno-lra"
+    build_one  cm_o2.tos       -O2    false     "$CC_DEFAULT"         ""
+    build_one  cm_o2e.tos      -O2    false     "$CC_EXPERIMENTAL"    ""
+    build_one  cm_o2er.tos     -O2    false     "$CC_EXPERIMENTAL"    "-mno-lra"
+    build_one  cm_o2f.tos      -O2    true      "$CC_DEFAULT"         ""
+    build_one  cm_o2fe.tos     -O2    true      "$CC_EXPERIMENTAL"    ""
+    build_one  cm_o2fer.tos    -O2    true      "$CC_EXPERIMENTAL"    "-mno-lra"
 
     echo "=== Copying .tos files to $OUTDIR/ ==="
     mkdir -p "$OUTDIR"
     cp "$WORKDIR"/cm_*.tos "$OUTDIR"/
 
     echo "=== Build complete ==="
-    ls -la "$OUTDIR"/cm_*.tos
+    echo ""
+    printf "%-16s %8s\n" "Variant" "Text"
+    printf "%-16s %8s\n" "-------" "----"
+    for f in "$OUTDIR"/cm_*.tos; do
+        local text
+        text=$(m68k-atari-mintelf-size "$f" | awk 'NR==2{print $1}')
+        printf "%-16s %8d\n" "$(basename "$f")" "$text"
+    done
+    echo ""
 }
 
 do_compare() {
@@ -107,8 +120,10 @@ do_compare() {
             local fc="no"
         fi
 
-        # Compiler
-        if [[ "$rest" == e* ]]; then
+        # Compiler and reload
+        if [[ "$rest" == er* ]]; then
+            local cc="exp-reload"
+        elif [[ "$rest" == e* ]]; then
             local cc="exp"
         else
             local cc="def"
@@ -195,7 +210,7 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  prepare  — Clone repo and apply patch"
-    echo "  build    — Build 8 CoreMark variants"
+    echo "  build    — Build 12 CoreMark variants (default, experimental LRA, experimental reload)"
     echo "  compare  — Compare benchmark results and text sizes from $OUTDIR/"
     echo "  clean    — Remove generated .tos files"
     exit 1

@@ -54,7 +54,7 @@ RTL (virtual regs)     ← register transfer language: explicit machine operatio
   ▼  [~30 pre-RA RTL passes]
   │
   ▼
-IRA + Reload           ← virtual → physical registers (d0-d7, a0-a6)
+IRA + LRA/Reload       ← virtual → physical registers (d0-d7, a0-a6)
   │
   ▼  [~20 post-RA passes]
   │
@@ -318,7 +318,7 @@ The unroller also controls *IV splitting*: by default, unrolled copies use base+
 
 ### 7. Register Allocation
 
-**What happens:** [IRA](GCC_GLOSSARY.md#ira) (Integrated Register Allocator, [Phase 8](GCC_PASSES.md#phase-8-register-allocation)) maps virtual registers to physical ones. On m68k: `d0`–`d7` (data), `a0`–`a6` (address), `fp0`–`fp7` (float). When there aren't enough registers, values are *spilled* to the stack. After IRA's global allocation, [LRA](GCC_GLOSSARY.md#lra) (Local Register Allocator) resolves remaining constraints through iterative elimination — m68k now defaults to LRA over the legacy reload pass (`-mno-lra` to revert). See [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator).
+**What happens:** [IRA](GCC_GLOSSARY.md#ira) (Integrated Register Allocator, [Phase 8](GCC_PASSES.md#phase-8-register-allocation)) maps virtual registers to physical ones. On m68k: `d0`–`d7` (data), `a0`–`a6` (address), `fp0`–`fp7` (float). When there aren't enough registers, values are *spilled* to the stack.
 
 This is the hardest constraint in the entire pipeline. Every optimization before RA works with unlimited registers; after RA, everything must fit in 15 integer registers (8 data + 7 address, since `a7` is SP).
 
@@ -338,9 +338,35 @@ Register 42 → `a0` (address register, because it's used as a memory base), reg
 
 **m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
 
-**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — m68k default), `gcc/reload.cc` (legacy reload — `-mno-lra`), `gcc/ira-costs.cc` (cost computation)
+#### IRA → LRA / Reload
 
-**Cross-ref:** [Foundation Passes: IRA](#6-ira-register-allocation)
+After IRA's global graph-coloring pass assigns physical registers, some pseudos may still violate instruction constraints — a value in a data register but the instruction requires an address register, or an immediate that doesn't fit the constraint. A second pass resolves these:
+
+- **Reload** (legacy, `gcc/reload.cc`): A single-pass approach. Scans each instruction, checks operand constraints, and inserts loads/stores to fix violations. When it encounters an unsatisfiable constraint, it spills a register. Reload makes all decisions in one pass — it cannot revisit earlier choices when later constraints conflict. m68k used reload exclusively through GCC 15. Reload is scheduled for removal in GCC 16.
+
+- **[LRA](GCC_GLOSSARY.md#lra)** (Local Register Allocator, `gcc/lra.cc`): An iterative, constraint-driven approach. LRA processes instructions in multiple rounds: each round attempts to satisfy constraints by inserting reloads, coalescing registers, or rematerializing values. If a change in one instruction invalidates another, LRA re-processes the affected instructions in the next round. This iterative elimination converges on a solution that reload's single pass may miss. LRA has been GCC's default for most targets since GCC 5.
+
+m68k was never switched to LRA — the backend has been in maintenance mode with no active development, and nobody did the work. Enabling LRA required several mitigations for m68k-specific patterns that LRA handles differently from reload. This branch enables LRA as the default (`-mlra` Init(1), `-mno-lra` to revert) with the following:
+
+**Canonical scaled index pass** (`m68k_pass_canon_scaled_index`, 7.29b): LRA is more sensitive to RTL canonicalization than reload. When combine merges `base + index + index` (from a ×2 scale), it produces `(plus (plus base index) index)` — a 3-register PLUS that LRA cannot match against the `*lea` pattern. The canon pass rewrites this to `(plus base (ashift index 1))`, the canonical scaled-index form that the machine description expects.
+
+```
+;; Before canon pass (pre-RA, pseudo-registers)
+(mem:SI (plus:SI (plus:SI (reg:SI 50) (reg:SI 51)) (reg:SI 51)))
+
+;; After canon pass — LRA can now match indexed addressing
+(mem:SI (plus:SI (reg:SI 50) (ashift:SI (reg:SI 51) (const_int 1))))
+```
+
+**Tablejump UNSPEC patterns**: The `casesi` switch dispatch uses `(d8,PC,Xn)` addressing to load from a jump table. Reload accepts a data register as the index (`Xn`), but LRA insists on an address register because it sees the index inside an address expression. Since the jump table index is naturally computed in a data register, LRA would insert a `move.l dN,aN` copy. The fix wraps the table load in `UNSPEC_TABLEJUMP_LOAD` — hiding the addressing mode from LRA. The output template emits the correct `move.w (label,pc,%dN.w),%dN` assembly directly. This avoids the constraint conflict entirely.
+
+**LEA indexed displacement overflow**: After LRA eliminates the frame pointer (`vfp → sp + frame_size`), indexed displacements can exceed the 8-bit signed limit of `(d8,An,Xn)` on 68000 and ColdFire. Two `define_insn_and_split` patterns (`*lea_indexed_disp_scaled`, `*lea_indexed_disp`) use register/const constraints instead of `"p"`, giving LRA satisfiable constraints. When the displacement fits in 8 bits, a single LEA is emitted; when it doesn't, a post-reload split decomposes it into two instructions. See [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator).
+
+**Result:** Fire Flight binary reduced by 1126 bytes (1.6%). For simple functions LRA and reload produce equivalent code; LRA wins on complex register-pressure scenarios where its iterative approach finds solutions that reload's single pass cannot.
+
+**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` (LRA — m68k default), `gcc/reload.cc` (legacy reload — `-mno-lra`), `gcc/ira-costs.cc` (cost computation), `gcc/config/m68k/m68k-rtl-passes.cc` (canon scaled index pass)
+
+**Cross-ref:** [Foundation Passes: IRA](#6-ira-register-allocation), [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator)
 
 ### 8. Post-RA Optimization
 
@@ -581,7 +607,7 @@ IRA's allocator works in two phases:
 
 **m68k hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS` promotes pseudos used as memory bases from `DATA_REGS` to `ADDR_REGS`, avoiding costly data→address register moves. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves (cost 3 vs default 2), because values in address registers lose CC flag visibility — guiding IRA to prefer data registers for arithmetic. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
 
-**Files:** `gcc/ira.cc`, `gcc/ira-color.cc`, `gcc/ira-lives.cc`, `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — constraint-based reload)
+**Files:** `gcc/ira.cc`, `gcc/ira-color.cc`, `gcc/ira-lives.cc`, `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — m68k default), `gcc/reload.cc` (legacy — `-mno-lra`)
 
 ### 7. PRE/FRE
 

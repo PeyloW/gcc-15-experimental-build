@@ -2,6 +2,9 @@
 
 Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PASSES.md), and [M68K_OPTIMIZATIONS.md](M68K_OPTIMIZATIONS.md).
 
+<a id="allocno"></a>
+**allocno** — IRA's representation of a pseudo-register within a specific loop region. Each pseudo gets one allocno per loop level in `ira-region=mixed`/`all` mode. Allocnos at different levels are linked as parent/child pairs; a **pass-through allocno** has zero references at its level (live but not used there). See [IRA](#ira).
+
 <a id="ast"></a>
 **AST** (Abstract Syntax Tree) — Tree representation of parsed source code. In GCC, the AST is [GENERIC](#generic). Each node represents a language construct (expression, statement, declaration).
 
@@ -72,7 +75,7 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 **loop unrolling** — RTL pass (7.20) that replicates the loop body N times to reduce branch overhead. On m68k, uses jump-table remainder dispatch and disables IV splitting to preserve auto-increment chains. See [Chapter 2 §6](GCC_ARCHITECTURE.md#6-rtl-optimization-pre-ra).
 
 <a id="lra"></a>
-**LRA** (Local Register Allocator) — GCC's reload pass (8.2), replacing the legacy `reload`. Resolves register constraints that [IRA](#ira) couldn't satisfy — inserts spills, reloads, and register-register moves.
+**LRA** (Local Register Allocator) — GCC's constraint resolution pass (8.2), replacing the legacy `reload` (scheduled for removal in GCC 16). Resolves register constraints that [IRA](#ira) couldn't satisfy — inserts spills, reloads, and register-register moves. Default for most targets since GCC 5; m68k switched to LRA in this branch. See [GCC_ARCHITECTURE.md §7](GCC_ARCHITECTURE.md#7-register-allocation).
 
 <a id="peephole1"></a>
 **peephole1** — Legacy peephole optimizer that runs inside `final_scan_insn()` during assembly output. Defined via `define_peephole` in the `.md` file. Matches RTL insns but emits raw assembly text directly — no new RTL is generated, so later passes cannot see the result. Largely superseded by [peephole2](#peephole2).

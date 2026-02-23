@@ -143,6 +143,7 @@ The autoincrement optimization evolved through several iterations, each addressi
 4. **DF notification bug** (`fb441a5d443`): `try_convert_to_postinc()` modified RTL instructions without calling `df_insn_rescan()`, leaving stale dataflow references. This caused use-after-free crashes in `sched2`'s `df_note_compute` — diagnosed via the macOS `0xa5a5a5a5` freed-memory pattern.
 5. **Cross-BB post-increment** (`0f37617ba8a`): When a load in a predecessor BB is followed by an increment (`addq`) at the top of the fall-through BB, and the address register is dead on the other edge, the pass combines them into post-increment and deletes the `addq`. Saves 2 instructions per iteration in patterns like mintlib's `strcmp`.
 6. **PRE self-loop suppression** (`f260a47bf92`): PRE treats a preheader expression matching the loop body as partially redundant and inserts on the self-loop edge, creating a new latch BB. This adds +1 copy +1 jump per iteration and blocks `auto_inc_dec`. Suppressed with `--param=pre-no-self-loop-insert=1`.
+7. **POST_INC constraint validation** (`22cb73981b7`): All 4 POST_INC creation points (`try_merge_postinc`, `try_convert_to_postinc` first insn and fixup loop, `try_cross_bb_postinc`) now validate with `extract_insn()` + `constrain_operands(1, ...)` after `recog_memoized()`. Fixed an ICE where `extendsidi2` (constraint `<` = pre-dec only) got a POST_INC destination because `recog_memoized` only checks predicates (`nonimmediate_operand` accepts POST_INC) but not constraint letters. See [GCC_DEBUG.md § "recog_memoized is not sufficient"](GCC_DEBUG.md#recog_memoized-is-not-sufficient-for-constraint-validation).
 
 ### Examples
 
@@ -454,17 +455,21 @@ swap    d0
 
 ## 9. IRA Register Allocation Improvements
 
-Several changes improve IRA's register allocation quality for the m68k register architecture. Pointer pseudos are promoted from DATA_REGS to ADDR_REGS when used as memory base addresses. The `TARGET_REGISTER_MOVE_COST` hook penalizes DATA→ADDR moves, guiding IRA's graph coloring to prefer data registers for arithmetic values. A new IRA parameter deduplicates operand references to prevent frequency inflation.
+Several changes improve IRA's register allocation quality for the m68k register architecture. Pointer pseudos are promoted from DATA_REGS to ADDR_REGS when used as memory base addresses, with deeper analysis for LRA mode that traces pointer derivation chains. The `TARGET_REGISTER_MOVE_COST` hook penalizes DATA→ADDR moves, guiding IRA's graph coloring to prefer data registers for arithmetic values. A new IRA parameter deduplicates operand references to prevent frequency inflation.
+
+IRA's hierarchical allocator merges parent and child allocnos when the child has zero references (pass-through), eliminating loop-boundary copies. A budget-based mechanism (`-fira-merge-passthrough`) limits how many pass-throughs are merged so that enough remain as cheap spill candidates when register pressure is high.
 
 On 68000/68010, IRA promotion introduces a regression for NULL pointer checks: `tst.l` cannot operate on address registers, so the backend emits `cmp.w #0,%aN` (4 bytes, 12 cycles). A peephole2 fixes this by replacing the compare with `move.l %aN,%dN` (2 bytes, 4 cycles) when a scratch data register is available. The `move.l` sets CC identically to `cmp.w #0`, so the existing CC elision mechanism skips the subsequent `tst.l`. On 68020+ this is unnecessary since `tst.l %aN` is valid (2 bytes).
 
-Disable with: `-mno-m68k-ira-promote`
+Disable promotion with: `-mno-m68k-ira-promote`
+
+Disable pass-through merge with: `-fno-ira-merge-passthrough`
 
 **Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
 
 **Patterns:** `*cbranchsi4_areg_zero`, `*cbranchsi4_areg_zero_rev` (`define_insn`), address register zero test (`define_peephole2`)
 
-**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k_costs.cc` (`m68k_register_move_cost_impl()`), `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/params.opt`
+**Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k_costs.cc` (`m68k_register_move_cost_impl()`), `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/ira-color.cc`, `gcc/ira-int.h`, `gcc/common.opt`, `gcc/params.opt`
 
 ### Implementation history
 
@@ -475,6 +480,9 @@ Disable with: `-mno-m68k-ira-promote`
 5. **IRA duplicate use dedup** (`1dfd466f515`): Added `--param=ira-ignore-duplicate-uses-in-insn=1` (default on for m68k). On m68k, `add.w %dN,%dN` lists the same register in two operand positions. Without dedup, IRA inflates the allocno frequency for that register, distorting thread priority during graph coloring and causing suboptimal register choices. The fix deduplicates operand references in `ira-build.cc` so each physical register is counted once per instruction.
 6. **HImode compare constraint reorder** (`1dfd466f515`): Moved `d,n` (data register vs immediate) to the first alternative for HI-mode compares in `m68k.md`. This biases IRA toward choosing data registers for HI-mode compare operands, complementing the register move cost penalty.
 7. **Allocno class narrowing** (`e6b6d6f65ae`): Fixed overly aggressive promotion to address registers for pseudos in chains. When IRA's cost analysis determines DATA_REGS is best but the allocno class was widened to GENERAL_REGS, the hook now narrows it back to DATA_REGS. Without this, IRA's thread coalescing can pull data-register-preferring pseudos into address registers, forcing reload to insert a copy through a data register.
+8. **Pointer-derived allocno promotion** (`f0e90897649`): Extended the promotion hook with three helpers for LRA mode: `pseudo_pointer_derived_p()` traces the def-use chain to check if a pseudo is derived from a pointer source (parameter, return value, or MEM load); `pseudo_only_addr_ops_p()` verifies all uses are address-register-compatible (memory bases, compares, copies — not arithmetic); `regno_addr_safe_context_p()` recursively checks each instruction's RTL context. When both conditions hold, the pseudo is promoted to ADDR_REGS even if IRA's constraint scan didn't see a direct MEM use. This catches pointer pseudos that pass through several copies before reaching a MEM operand.
+9. **Budget-based pass-through merge** (`f0e90897649`): Added `-fira-merge-passthrough` (default off globally, enabled for m68k in `m68k_option_override_internal`). In IRA's hierarchical allocator, pass-through allocnos (zero references at a child loop level) can be merged with their parent to eliminate loop-boundary copies. However, merging pre-assigns the parent's register, removing the allocno from the child-level coloring graph. When register pressure exceeds available registers, this removes a cheap spill candidate and can force a more expensive allocno to be spilled instead. The budget mechanism in `color_pass()` computes `budget = nrefs0_count - max(0, pressure - available)`: it merges pass-throughs up to the budget, leaving enough as spill candidates. For example, with 4 pass-throughs and pressure exceeding capacity by 1, the budget is 3 — three get merged (eliminating copies) and one remains spillable.
+10. **ColdFire pointer-derived promotion guard** (`22cb73981b7`): Added `!TARGET_COLDFIRE` guard to the LRA-specific pointer-derived promotion path (item 8). On ColdFire, over-promoting pseudos to ADDR_REGS caused LRA to corrupt the dominator tree's ET forest data structure, producing an infinite loop in `et_splay()` during `pass_reorder_blocks`. ColdFire's restricted addressing modes (no `(d16,An)` with address register index) create constraints that LRA cannot resolve when too many pseudos are forced into ADDR_REGS.
 
 ### How it works
 
@@ -557,6 +565,7 @@ Register move cost (inner loop of `test_matrix_add` at O2):
 - `test_areg_zero_elide()` — store sets CC for address register, `move.l aN,dN` elided
 - `test_matrix_add()` — register move cost prevents arithmetic in address register
 - `test_matrix_mul()` — improved register allocation with dedup
+- `test_cm_matrix_mul_matrix_bitextract()` — nested loop register pressure with pass-through merge budget
 
 ---
 
