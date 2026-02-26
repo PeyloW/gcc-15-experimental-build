@@ -141,7 +141,7 @@ The fastest test: each custom pass has a `-mno-*` flag. Disable one at a time to
 
 | Flag | Pass | Phase |
 |------|------|-------|
-| `-mno-m68k-autoinc` | Autoincrement (GIMPLE split + RTL convert) | 5.95a, 9.13a, 9.14b |
+| `-mno-m68k-autoinc` | Autoincrement (GIMPLE split + RTL convert) | 5.95a, 7.48a, 9.13a |
 | `-mno-m68k-doloop` | DBRA loop optimization | 7.21 |
 | `-mno-m68k-narrow-index-mult` | Narrow 32-bit multiply to 16-bit | 5.26a |
 | `-mno-m68k-reorder-mem` | Memory access reordering | 5.123a |
@@ -304,7 +304,7 @@ diff -u test.c.286r.cse2 test.c.287r.combine \
 
 ### Example: autoinc pass conversion
 
-Before `m68k-autoinc` (from `m68k-reorder-cc` dump):
+Before `m68k-normalize-autoinc` (from `m68k-reorder-cc` dump):
 
 ```
 (insn 10 (set (reg:QI 0 %d0)
@@ -313,7 +313,7 @@ Before `m68k-autoinc` (from `m68k-reorder-cc` dump):
               (plus:SI (reg:SI 8 %a0) (const_int 1))))
 ```
 
-After `m68k-autoinc`:
+After `m68k-normalize-autoinc`:
 
 ```
 (insn 10 (set (reg:QI 0 %d0)

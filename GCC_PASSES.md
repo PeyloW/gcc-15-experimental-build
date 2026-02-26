@@ -312,7 +312,7 @@ Main optimization pipeline run on each function.
 | 5.121 | `pass_phiopt` (4) | GIMPLE-SSA | Final phiopt | - | Last PHI optimization |
 | 5.122 | `pass_fold_builtins` | GIMPLE-SSA | Fold builtins | - | `sqrt(4.0)` → `2.0` |
 | 5.123 | `pass_optimize_widening_mul` | GIMPLE-SSA | Widening multiply | - | Use wide multiply instructions |
-| 5.123a | `m68k_pass_reorder_mem` | GIMPLE-SSA | **Memory reorder** | m68k | Reorders scattered struct accesses by offset |
+| 5.123a | `m68k_pass_reorder_mem` | GIMPLE-SSA | **Memory reorder** | m68k | Reorders struct accesses by offset; normalizes constant-address bases |
 | 5.124 | `pass_store_merging` | GIMPLE-SSA | Store merging | - | `*p=a; *(p+4)=b` → single store |
 | 5.125 | `pass_cd_dce` (3) | GIMPLE-SSA | Control-dependent DCE | - | Final CD-DCE |
 | 5.126 | `pass_sccopy` (2) | GIMPLE-SSA | SCC copy prop | - | Final copy propagation |
@@ -427,6 +427,7 @@ Main optimization pipeline run on each function.
 | 7.45 | `pass_sms` | RTL | Software pipelining | - | Modulo scheduling |
 | 7.46 | `pass_live_range_shrinkage` | RTL | Shrink live ranges | - | Reduce register pressure |
 | 7.47 | `pass_sched` | RTL | Instruction scheduling 1 | `pass_sched2` | Pre-RA scheduling |
+| 7.48a | **`m68k_pass_opt_autoinc`** | RTL | **Pre-RA auto-increment** | m68k | **Multi-step, cross-BB, reposition on pseudos** |
 | 7.48 | `pass_rtl_avoid_store_forwarding` | RTL | Avoid store forwarding | - | Prevent store-to-load |
 | 7.49 | `pass_early_remat` | RTL | Early rematerialization | - | Recompute vs reload |
 
@@ -458,10 +459,9 @@ Main optimization pipeline run on each function.
 | 9.11 | `pass_jump2` | RTL | Final jump optimization | - | Clean up jumps |
 | 9.12 | `pass_duplicate_computed_gotos` | RTL | Duplicate computed gotos | - | For better scheduling |
 | 9.13 | `pass_sched_fusion` | RTL | Scheduler fusion | - | Fuse for scheduling |
-| 9.13a | **`m68k_pass_normalize_autoinc`** | RTL | **m68k autoinc normalize** | - | **Canonicalize autoinc patterns** |
+| 9.13a | **`m68k_pass_normalize_autoinc`** | RTL | **m68k autoinc LRA recovery** | - | **Reconstruct LRA-decomposed POST_INC** |
 | 9.14 | `pass_peephole2` | RTL | **Peephole optimization 2** | - | **`move.l (a0)+,(a1)+`** (m68k!) |
 | 9.14a | **`m68k_pass_reorder_for_cc`** | RTL | **m68k load reorder for CC** | - | **Load tested reg last, elide `tst`** |
-| 9.14b | **`m68k_pass_opt_autoinc`** | RTL | **m68k auto-increment** | - | **Convert indexed→`(ax)+`/`-(ax)`** |
 | 9.15 | `pass_if_after_reload` | RTL | Post-reload if-conversion | - | Late conditional moves |
 | 9.16 | `pass_regrename` | RTL | Register renaming | - | Break false dependencies |
 | 9.17 | `pass_fold_mem_offsets` | RTL | Fold memory offsets | - | Combine offset calculations |
@@ -561,7 +561,7 @@ muls.w  #320,d0
 **Location**: Before `pass_store_merging` (5.124) in Phase 5
 **Source**: `gcc/config/m68k/m68k-gimple-passes.cc`
 
-**Purpose**: Reorder scattered struct field accesses by memory offset, enabling store merging and post-increment addressing.
+**Purpose**: Reorder scattered struct field accesses by memory offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases: when unrolling produces MEM_REFs with different `INTEGER_CST` pointers to contiguous memory, rewrites them to share a common base. Runs at `-O1` and above (including `-Os`).
 
 ### RTL Passes
 
@@ -572,12 +572,43 @@ muls.w  #320,d0
 
 **Purpose**: Eliminate redundant register copies that are already available on all incoming paths. Cleans up copies reintroduced by loop unrolling before IRA.
 
+#### `m68k_pass_opt_autoinc`
+
+**Location**: After `pass_sched` (7.47) in Phase 7
+**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+
+**Purpose**: Pre-RA auto-increment optimization. Handles multi-step indexed sequences, cross-BB post-increment, and increment repositioning on pseudos. Runs before IRA so the register allocator sees POST_INC patterns and naturally allocates address registers.
+
+**Transformation Example**:
+
+```asm
+; Before:
+  move.l (pseudo),d0
+  move.l 4(pseudo),d1
+  addq.l #8,pseudo
+
+; After:
+  move.l (pseudo)+,d0
+  move.l (pseudo)+,d1
+```
+
 #### `m68k_pass_normalize_autoinc`
 
 **Location**: Before `pass_peephole2` (9.14) in Phase 9
 **Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
 
-**Purpose**: Normalize autoincrement patterns to canonical forms for better optimization.
+**Purpose**: LRA decomposition recovery. Reconstructs POST_INC addressing that LRA decomposed into separate increment + negative-offset access. Also retains increment normalization as a fallback for patterns LRA/reload may re-introduce.
+
+**Transformation Example**:
+
+```asm
+; Before (LRA decomposition):
+  addq.l #1,%a0
+  tst.b  -1(%a0)
+
+; After (recovered):
+  tst.b  (%a0)+
+```
 
 #### `m68k_pass_reorder_for_cc`
 
@@ -585,25 +616,6 @@ muls.w  #320,d0
 **Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
 
 **Purpose**: Reorder loads so the register tested by a conditional branch is set by the immediately preceding instruction, allowing `final` to elide the `tst`.
-
-#### `m68k_pass_opt_autoinc`
-
-**Location**: After `m68k_pass_reorder_for_cc` in Phase 9
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
-
-**Purpose**: Convert indexed addressing to POST_INC/PRE_DEC addressing modes. Also works across basic block boundaries when the increment is in a fall-through successor.
-
-**Transformation Example**:
-```asm
-; Before:
-  move.l (a0),d0
-  move.l 4(a0),d1
-  lea 8(a0),a0
-
-; After:
-  move.l (a0)+,d0
-  move.l (a0)+,d1
-```
 
 #### `m68k_pass_elim_andi`
 
@@ -659,10 +671,10 @@ muls.w  #320,d0
 | `pass_combine` (7.33) | Instruction combining | `clr d0; move d0,(a0)` → `clr (a0)` |
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
 | `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
-| `m68k_pass_normalize_autoinc` (9.13a) | Normalize autoinc patterns | Canonicalize for later passes |
+| `m68k_pass_opt_autoinc` (7.48a) | Pre-RA auto-increment | Multi-step, cross-BB, reposition on pseudos |
+| `m68k_pass_normalize_autoinc` (9.13a) | LRA decomposition recovery | Reconstruct LRA-decomposed POST_INC |
 | `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |
-| `m68k_pass_opt_autoinc` (9.14b) | Convert indexed→autoinc | `(a0); lea 4(a0),a0` → `(a0)+` |
 | `m68k_pass_highword_opt` (9.19a) | Word packing | `andi.l #$ffff; ori.l` → `swap; move.w` |
 | `m68k_pass_elim_andi` (9.19b) | Hoist zero-extension | `andi.l #255,dn` → hoisted `moveq #0,dn` |
 | `pass_shorten_branches` (10.12) | Use short branches | `jmp label` → `bra.s label` |

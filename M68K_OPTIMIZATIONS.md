@@ -127,7 +127,7 @@ move.l  (a0)+,(a1)+
 
 Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=pre-no-self-loop-insert=1`) to keep tight loops in a single BB where auto-increment works naturally.
 
-**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new RTL pass), `m68k-normalize-autoinc` (new RTL pass)
+**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
 
 Disable with: `-mno-m68k-autoinc`
 
@@ -139,11 +139,11 @@ The autoincrement optimization evolved through several iterations, each addressi
 
 1. **GIMPLE split pass** (`6e3f1c35c3d`): The `m68k-autoinc-split` pass runs after IVOPTS (5.95a) and re-splits combined pointer increments so the later RTL `inc_dec` pass can fold them into `(a0)+`. IVOPTS sometimes combines separate pointer advances into a single multi-step increment.
 2. **RTL normalize pass** (`58daf90bee2`): The `m68k-normalize-autoinc` pass runs before `peephole2` and canonicalizes auto-increment patterns. Initially attempted as a modification to `gimplify.cc` but that caused ICEs on complex code.
-3. **Post-RA conversion** (`fb441a5d443`, `c0e4abafcff`): The main `m68k-autoinc` RTL pass runs after register allocation (9.14b). At this point, physical registers are known, revealing new merging opportunities invisible pre-RA. Phase 1 (`try_relocate_increment`) handles negative-offset normalization; Phase 2 (`try_convert_to_postinc`) does the actual conversion.
+3. **Pre-RA conversion** (`fb441a5d443`, `c0e4abafcff`): The `m68k-pre-ra-autoinc` RTL pass runs after combine and scheduling (7.48a), before IRA. It handles three patterns on pseudos: multi-step indexed sequences (`(pseudo), 4(pseudo), 8(pseudo), addq` → 3× POST_INC), cross-BB post-increment (load in predecessor + increment in successor), and increment repositioning (moving increments past negative-offset accesses). Running pre-RA gives IRA POST_INC information, so it naturally allocates address registers without relying on the IRA promotion hook. Uses `constrain_operands(0, ...)` (strict=0) for pre-RA validation and `regno_reg_rtx[]` for canonical rtx identity (required for LRA's `SET_REGNO` in `lra_final_code_change`).
 4. **DF notification bug** (`fb441a5d443`): `try_convert_to_postinc()` modified RTL instructions without calling `df_insn_rescan()`, leaving stale dataflow references. This caused use-after-free crashes in `sched2`'s `df_note_compute` — diagnosed via the macOS `0xa5a5a5a5` freed-memory pattern.
 5. **Cross-BB post-increment** (`0f37617ba8a`): When a load in a predecessor BB is followed by an increment (`addq`) at the top of the fall-through BB, and the address register is dead on the other edge, the pass combines them into post-increment and deletes the `addq`. Saves 2 instructions per iteration in patterns like mintlib's `strcmp`.
 6. **PRE self-loop suppression** (`f260a47bf92`): PRE treats a preheader expression matching the loop body as partially redundant and inserts on the self-loop edge, creating a new latch BB. This adds +1 copy +1 jump per iteration and blocks `auto_inc_dec`. Suppressed with `--param=pre-no-self-loop-insert=1`.
-7. **POST_INC constraint validation** (`22cb73981b7`): All 4 POST_INC creation points (`try_merge_postinc`, `try_convert_to_postinc` first insn and fixup loop, `try_cross_bb_postinc`) now validate with `extract_insn()` + `constrain_operands(1, ...)` after `recog_memoized()`. Fixed an ICE where `extendsidi2` (constraint `<` = pre-dec only) got a POST_INC destination because `recog_memoized` only checks predicates (`nonimmediate_operand` accepts POST_INC) but not constraint letters. See [GCC_DEBUG.md § "recog_memoized is not sufficient"](GCC_DEBUG.md#recog_memoized-is-not-sufficient-for-constraint-validation).
+7. **POST_INC constraint validation** (`22cb73981b7`): All POST_INC creation points validate with `extract_insn()` + `constrain_operands()` after `recog_memoized()`. The pre-RA pass uses `strict=0`; the post-RA `try_merge_postinc` uses `strict=1`. Fixed an ICE where `extendsidi2` (constraint `<` = pre-dec only) got a POST_INC destination because `recog_memoized` only checks predicates (`nonimmediate_operand` accepts POST_INC) but not constraint letters. See [GCC_DEBUG.md § "recog_memoized is not sufficient"](GCC_DEBUG.md#recog_memoized-is-not-sufficient-for-constraint-validation).
 
 ### Examples
 
@@ -482,7 +482,7 @@ Disable pass-through merge with: `-fno-ira-merge-passthrough`
 7. **Allocno class narrowing** (`e6b6d6f65ae`): Fixed overly aggressive promotion to address registers for pseudos in chains. When IRA's cost analysis determines DATA_REGS is best but the allocno class was widened to GENERAL_REGS, the hook now narrows it back to DATA_REGS. Without this, IRA's thread coalescing can pull data-register-preferring pseudos into address registers, forcing reload to insert a copy through a data register.
 8. **Pointer-derived allocno promotion** (`f0e90897649`): Extended the promotion hook with three helpers for LRA mode: `pseudo_pointer_derived_p()` traces the def-use chain to check if a pseudo is derived from a pointer source (parameter, return value, or MEM load); `pseudo_only_addr_ops_p()` verifies all uses are address-register-compatible (memory bases, compares, copies — not arithmetic); `regno_addr_safe_context_p()` recursively checks each instruction's RTL context. When both conditions hold, the pseudo is promoted to ADDR_REGS even if IRA's constraint scan didn't see a direct MEM use. This catches pointer pseudos that pass through several copies before reaching a MEM operand.
 9. **Budget-based pass-through merge** (`f0e90897649`): Added `-fira-merge-passthrough` (default off globally, enabled for m68k in `m68k_option_override_internal`). In IRA's hierarchical allocator, pass-through allocnos (zero references at a child loop level) can be merged with their parent to eliminate loop-boundary copies. However, merging pre-assigns the parent's register, removing the allocno from the child-level coloring graph. When register pressure exceeds available registers, this removes a cheap spill candidate and can force a more expensive allocno to be spilled instead. The budget mechanism in `color_pass()` computes `budget = nrefs0_count - max(0, pressure - available)`: it merges pass-throughs up to the budget, leaving enough as spill candidates. For example, with 4 pass-throughs and pressure exceeding capacity by 1, the budget is 3 — three get merged (eliminating copies) and one remains spillable.
-10. **ColdFire pointer-derived promotion guard** (`22cb73981b7`): Added `!TARGET_COLDFIRE` guard to the LRA-specific pointer-derived promotion path (item 8). On ColdFire, over-promoting pseudos to ADDR_REGS caused LRA to corrupt the dominator tree's ET forest data structure, producing an infinite loop in `et_splay()` during `pass_reorder_blocks`. ColdFire's restricted addressing modes (no `(d16,An)` with address register index) create constraints that LRA cannot resolve when too many pseudos are forced into ADDR_REGS.
+10. **ColdFire ADDR_REGS promotion guard** (`22cb73981b7`, `572d8c3b4c5`): Excluded ColdFire from all ADDR_REGS promotion paths in `m68k_ira_change_pseudo_allocno_class`. The `!TARGET_COLDFIRE` guard covers both the `REG_POINTER + pseudo_used_as_mem_address_p` path and the LRA-specific `pseudo_pointer_derived_p` path, as well as the fallback `pseudo_used_as_mem_address_p` at the bottom of the function. On ColdFire, over-promoting pseudos to ADDR_REGS caused LRA to corrupt the dominator tree's ET forest data structure, producing an infinite loop in `et_splay()` during `pass_reorder_blocks`. ColdFire's restricted addressing modes (no `(d16,An)` with address register index) create constraints that IRA/LRA cannot resolve when too many pseudos are forced into ADDR_REGS.
 
 ### How it works
 
@@ -639,7 +639,7 @@ while (count--) {
 
 ## 11. Memory Access Reordering
 
-Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Verifies safety using GCC's alias oracle. Runs before store-merging.
+Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses share a common base pointer. Verifies reordering safety using GCC's alias oracle. Runs before store-merging at `-O1` and above (including `-Os`).
 
 **Pass:** `m68k-reorder-mem` (new GIMPLE pass)
 
@@ -652,8 +652,11 @@ Disable with: `-mno-m68k-reorder-mem`
 1. **Initial pass** (`30c150960a9`): Added a GIMPLE pass that reorders indexed memory accesses through the same base pointer in ascending offset order. This enables the store-merging pass (which requires stores in offset order) and the autoincrement pass (which needs sequential access).
 2. **Alias safety** (`0d7b02a53d0`): Fixed a miscompilation: a store with a memory source could be reordered past a write that initializes that source. The pass originally only checked whether intervening statements clobber the store's destination, not its source operand.
 3. **Build stability** (`c800837c5cb`): Re-enabled the pass after fixing the alias bug. Added individual disable flags for each m68k pass.
+4. **Constant-address normalization**: When loop unrolling produces MEM_REFs with different `INTEGER_CST` base pointers (e.g. stores to `$8258`, `$825A`, `$825A+2`, `$825A+4`), the pass now rewrites them to share the lowest address as a common base with increasing offsets (`$8258+0`, `$8258+2`, `$8258+4`, `$8258+6`). This lets RTL expand use a single pseudo for the base address, enabling the full sequence to be merged via post-increment. Gate widened from `-O2` (excluding `-Os`) to `-O1` and above.
 
 ### Examples
+
+Pointer-based reordering:
 
 ```c
 struct quad { short a, b, c, d; };
@@ -673,10 +676,29 @@ clr.l   (a0)+
 clr.l   (a0)+
 ```
 
+Constant-address normalization (unrolled copy to hardware registers):
+
+```c
+copyn(pal, 4, (short*)0xffff8258);
+```
+```asm
+; Before: split bases prevent full merge
+move.w  (%a0)+,$8258.w     ; stranded absolute store
+move.w  #$825a,%a1
+move.l  (%a0)+,(%a1)+      ; 2 stores merged
+move.w  (%a0)+,(%a1)+
+
+; After: common base enables 2x move.l
+move.w  #$8258,%a1
+move.l  (%a0)+,(%a1)+      ; stores 1+2 merged
+move.l  (%a0)+,(%a1)+      ; stores 3+4 merged
+```
+
 ### Test cases
 
 - `test_clear_struct_unorderred()` — out-of-order field clears → reordered → merged
 - `test_clear_struct()` — already-ordered clears (no reorder needed, just merge)
+- `test_fire_flicker_callback()` — unrolled copy to constant address → base normalization → full merge
 
 ---
 

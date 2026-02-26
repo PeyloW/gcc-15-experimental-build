@@ -26,6 +26,7 @@ Read all of the following before proposing changes:
 | `GCC_PASSES.md` | Complete GCC 15 pass list with m68k additions, in execution order |
 | `GCC_ARCHITECTURE.md` | Conceptual guide to GCC's transformation pipeline |
 | `GCC_DEBUG.md` | Practical debugging guide (pass dumps, ICE diagnosis, pitfalls) |
+| `GCC_RTL_CANON.md` | RTL canonicalization rules — canonical forms that define_insn patterns must match |
 | `GCC_GLOSSARY.md` | Glossary of GCC internal terms |
 | `README.md` | Project overview, setup instructions, workflow, script/doc index |
 | `CLAUDE.md` | Claude Code project instructions (build commands, key files, workflow) |
@@ -39,13 +40,13 @@ The proposed plan must:
 3. **Flag redundancies** — only `PR_COMMENT.md` is allowed to duplicate more than a single sentence from other documents. All other files must cross-reference instead of repeating
 4. **Check internal consistency** — pass names, pass numbers, section numbers, file paths, flag names, and disable options must match across all documents
 5. **Update cross-document links** — ensure all `[text](file.md)` references are correct and that the README doc/script tables are complete
-6. **Keep PR_COMMENT.md under 8k** — it is the succinct version of M68K_OPTIMIZATIONS.md, not a copy
+6. **Keep PR_COMMENT.md under 10k** — it is the succinct version of M68K_OPTIMIZATIONS.md, not a copy. All `**Pass:**`, `**Passes:**`, `**Hooks:**`, `**Patterns:**`, and `**Code:**` lines must be preserved — never remove these when trimming for size
 
 ## Execution
 
 After the user approves the plan:
 
 1. Update each file in the plan
-2. Verify `PR_COMMENT.md` is under 8k bytes
+2. Verify `PR_COMMENT.md` is under 10k bytes
 3. Verify no stale cross-references remain (grep for broken `](` links)
 4. Present a summary of all changes made

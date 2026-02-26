@@ -219,7 +219,7 @@ The integer counter is gone — replaced by a pointer that advances through memo
 
 - `m68k_pass_narrow_index_mult` (5.26a) — narrows 32-bit multiplies to 16-bit `muls.w`
 - `m68k_pass_autoinc_split` (5.95a) — re-splits combined pointer increments for post-increment
-- `m68k_pass_reorder_mem` (5.123a) — reorders struct field accesses by offset
+- `m68k_pass_reorder_mem` (5.123a) — reorders struct field accesses by offset; normalizes constant-address bases
 
 **Files:** `gcc/tree-ssa-loop-ivopts.cc` (IVOPTS), `gcc/tree-ssa-pre.cc` (PRE), `gcc/tree-ssa-dce.cc` (DCE), `gcc/tree-ssa-dom.cc` (dominator opts), `gcc/tree-vrp.cc` (VRP), `gcc/gimple-ssa-store-merging.cc` (store merging)
 
@@ -277,7 +277,7 @@ tells GCC that `(set (mem (post_inc reg)) reg)` is a single `move.b` instruction
 (set (mem:QI (post_inc:SI (reg:SI 42))) (reg:QI 44))   ;; move.b d0,(a0)+
 ```
 
-This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass_opt_autoinc` (9.14b) runs *after* RA to catch additional opportunities that `inc_dec` misses — particularly cross-BB patterns and cases where register allocation reveals new merging opportunities. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-autoincrement-optimization-pass).
+This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass_opt_autoinc` (7.48a) runs after combine/scheduling but *before* IRA, handling multi-step indexed sequences, cross-BB patterns, and increment repositioning on pseudos. Running pre-RA gives IRA POST_INC information so it naturally allocates address registers. A post-RA `m68k_pass_normalize_autoinc` (9.13a) handles only LRA decomposition recovery. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-autoincrement-optimization-pass).
 
 **`doloop`** (7.21, `doloop_optimize_loops()` in `gcc/loop-doloop.cc`) transforms counted loops into hardware loop instructions. It recognizes loops with a trip count computable at entry, generates a `doloop_end` pattern that decrements and branches in one instruction, and eliminates the original compare+branch. On m68k, `doloop_end` maps to `dbra`:
 
@@ -322,7 +322,7 @@ The unroller also controls *IV splitting*: by default, unrolled copies use base+
 
 This is the hardest constraint in the entire pipeline. Every optimization before RA works with unlimited registers; after RA, everything must fit in 15 integer registers (8 data + 7 address, since `a7` is SP).
 
-**Pre-RA vs post-RA optimization:** Optimizations that reduce register pressure — eliminating copies, folding increments into addressing modes, removing dead values — are far more effective when run *before* RA. Pre-RA, removing a pseudo-register directly reduces the number of values IRA must fit into physical registers, which can be the difference between a clean allocation and a spill. Post-RA, the allocation is already committed: even if an optimization removes a register use, the spill slot and save/restore code are already in place. At best a post-RA optimization can free a register for use as a scratch, but it cannot undo a spill decision. This is why `m68k_pass_avail_copy_elim` (7.29a) runs before IRA — eliminating redundant copies early lets IRA coalesce the registers instead of allocating separate physical registers that might cause spills.
+**Pre-RA vs post-RA optimization:** Optimizations that reduce register pressure — eliminating copies, folding increments into addressing modes, removing dead values — are far more effective when run *before* RA. Pre-RA, removing a pseudo-register directly reduces the number of values IRA must fit into physical registers, which can be the difference between a clean allocation and a spill. Post-RA, the allocation is already committed: even if an optimization removes a register use, the spill slot and save/restore code are already in place. At best a post-RA optimization can free a register for use as a scratch, but it cannot undo a spill decision. This is why `m68k_pass_avail_copy_elim` (7.29a) runs before IRA — eliminating redundant copies early lets IRA coalesce the registers instead of allocating separate physical registers that might cause spills. Similarly, `m68k_pass_opt_autoinc` (7.48a) creates POST_INC patterns on pseudos pre-RA, so IRA sees them and naturally allocates address registers.
 
 **For our fill loop:**
 
@@ -384,9 +384,8 @@ m68k was never switched to LRA — the backend has been in maintenance mode with
 
 | Pass | Purpose |
 |------|---------|
-| `m68k_pass_normalize_autoinc` (9.13a) | Canonicalize autoinc patterns before peephole2 |
+| `m68k_pass_normalize_autoinc` (9.13a) | LRA decomposition recovery: reconstruct POST_INC that LRA decomposed |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads so tested register is loaded last → elide `tst` |
-| `m68k_pass_opt_autoinc` (9.14b) | Post-RA indexed → `(a0)+` conversion, including cross-BB |
 | `m68k_pass_highword_opt` (9.19a) | Word packing: `andi.l`+`ori.l` → `swap`+`move.w` |
 | `m68k_pass_elim_andi` (9.19b) | Hoist `moveq #0` for zero-extension |
 

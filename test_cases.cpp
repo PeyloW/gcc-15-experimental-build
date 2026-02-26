@@ -341,6 +341,11 @@ extern "C" {
         copyn(src, 16, (short*)0xffff8240);
     }
 
+    void test_fire_flicker_callback(short g_fire_flickers[8][4], int i) {
+        const auto& pal = g_fire_flickers[i & 0x7];
+        copyn(pal, 4, reinterpret_cast<short*>(0xffff8240) + 12);
+    }
+    
     /* test_doloop_const_small - doloop with known small constant count
      * Expected: Should use dbra via DOLOOP infrastructure.
      * The DOLOOP pass should recognize the constant iteration count (100)
