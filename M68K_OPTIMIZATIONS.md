@@ -12,22 +12,13 @@ A PR-ready version of this document is available in [PR_COMMENT.md](PR_COMMENT.m
 
 **Optimizations**
 
-1. [RTX and Address Cost Calculations](#1-rtx-and-address-cost-calculations)
-2. [Induction Variable Optimization](#2-induction-variable-optimization)
-3. [Autoincrement Optimization Pass](#3-autoincrement-optimization-pass)
-4. [Memory Access Merge Peepholes](#4-memory-access-merge-peepholes)
-5. [DBRA Loop Optimization](#5-dbra-loop-optimization)
-6. [Multiplication Optimization](#6-multiplication-optimization)
-7. [ANDI Hoisting](#7-andi-hoisting)
-8. [Word Packing and Insert Patterns](#8-word-packing-and-insert-patterns)
-9. [IRA Register Allocation Improvements](#9-ira-register-allocation-improvements)
-10. [Improved Loop Unrolling](#10-improved-loop-unrolling)
-11. [Memory Access Reordering](#11-memory-access-reordering)
-12. [Single-Bit Extraction](#12-single-bit-extraction)
-13. [Available Copy Elimination](#13-available-copy-elimination)
-14. [Load Reordering for CC Tracking](#14-load-reordering-for-cc-tracking)
-15. [Sibcall Optimization](#15-sibcall-optimization)
-16. [LRA Register Allocator](#16-lra-register-allocator)
+1. [Cost Model](#1-cost-model)
+2. [Register Allocation](#2-register-allocation)
+3. [Loop Optimization](#3-loop-optimization)
+4. [Memory Access Reordering](#4-memory-access-reordering)
+5. [Autoincrement Optimization](#5-autoincrement-optimization)
+6. [16/32-bit Optimization](#6-1632-bit-optimization)
+7. [Various Smaller Optimizations](#7-various-smaller-optimizations)
 
 **Appendix**
 
@@ -36,7 +27,7 @@ A PR-ready version of this document is available in [PR_COMMENT.md](PR_COMMENT.m
 
 ---
 
-## 1. RTX and Address Cost Calculations
+## 1. Cost Model
 
 Rewritten cost model using lookup tables with actual cycle counts per CPU generation (68000, 68020-030, 68040+), inspired by Bebbo's gcc6 work. The stock GCC 15 m68k backend uses flat costs without distinguishing addressing modes, operand sizes, or CPU generations.
 
@@ -47,17 +38,6 @@ Rewritten cost model using lookup tables with actual cycle counts per CPU genera
 **Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new)
 
 **Code:** `gcc/config/m68k/m68k.cc` (`m68k_rtx_costs_impl()`, `m68k_insn_cost_impl()`, `m68k_address_cost_impl()`), `gcc/config/m68k/m68k_costs.cc`
-
-### Implementation history
-
-The cost model was developed in several stages:
-
-1. **Initial port** (`9fa842d7054`): Direct port of Bebbo's amiga gcc6 cost tables to GCC 15, providing per-CPU-generation cycle counts for all addressing modes and instruction types.
-2. **Store costing bug** (`98264372b75`): Discovered that only the source operand was being costed. `move.b 1(a0),d0` was undercounted to 8 cycles (should be 12), and `move.b d0,1(a0)` even worse at 4. Added `TARGET_INSN_COST` to cost the full `(set dst src)` pattern.
-3. **Double-counting fix** (`98264372b75`): On 68020, nested RTX inside MEM were counted twice — once as standalone arithmetic and once as addressing mode. Fixed by recognizing address sub-expressions.
-4. **Non-RMW detection** (`97c42dbf01a`): `(set (mem) (plus reg const))` where reg is not the memory base is NOT a single instruction — it requires copy+op+store (3 insns). Without additive costing, `combine` and `late_combine` fold IV chains into base+offset form.
-5. **68020+/68040 cost quality** (`d7daf76243b`, `2420a27fd56`): Improved cost tables for 68020-030 and 68040+ to match the precision of the 68000 tables. Fixed overcounted multiplication on 68020+ and corrected addressing mode costs for the pipelined processors.
-6. **Shift cost SUBREG fix** (`1dfd466f515`): Fixed shift cost calculation to handle `SUBREG` operands (e.g., a HImode subreg of an SImode register), which previously fell through to the default cost path.
 
 ### Examples
 
@@ -81,379 +61,21 @@ lea     0(a0,d1.l*4),a0
 
 ---
 
-## 2. Induction Variable Optimization
+## 2. Register Allocation
 
-Improves induction variable selection for auto-increment addressing. When the target supports auto-increment, IV step costs are discounted to zero if the step matches a memory access size (1, 2, or 4 bytes). On m68k, the `addq.l #2,a0` that IVOPTS costs for each pointer IV is absorbed into `(a0)+` for free — the same reasoning GCC already applies to doloop decrements. Without this, IVOPTS prefers fewer IVs with indexed addressing over separate pointer IVs that benefit from post-increment.
+Register allocation quality is critical on m68k, where the split register file (data `d0`–`d7` vs address `a0`–`a6`) means a value in the wrong class forces a copy before every use. These changes switch to the LRA allocator and improve IRA's register class decisions.
 
-Also prefers fewer IV registers when cost is equal, and avoids autoincrement in outer loops when the pointer is used in an inner loop.
+### LRA Register Allocator
 
-Disable step discount with: `-fno-ivopts-autoinc-step`
+GCC provides two register allocators that run after IRA's global allocation: **reload** (legacy, constraint-based patching) and **LRA** (Local Register Allocator, constraint-driven with iterative elimination). LRA has been GCC's default for most targets since GCC 5, but m68k was never switched — until now.
 
-**Pass:** `ivopts` (modified, `tree_ssa_iv_optimize()` in `gcc/tree-ssa-loop-ivopts.cc`)
+**Code:** `gcc/config/m68k/m68k.h` (`-mlra` Init(1)), `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k-pass-regalloc.cc`, `gcc/config/m68k/m68k.md`
 
-**Code:** `gcc/tree-ssa-loop-ivopts.cc`
+### Disable
 
-### Implementation history
+`-mno-lra` reverts to the legacy reload allocator.
 
-1. **Step cost discount** (`559f4449f3a`): Credits auto-increment savings in IVOPTS cost model, similar to how doloop is credited over loop increments. Without this, the optimizer favors loop constructs using indexed addressing `(a0,d0.l)` (10 cycles on 68000) over separate pointer IVs with `(a0)+` (4 cycles).
-2. **Register pressure tie-breaking** (`ab3a166c954`): When two IV candidate sets have equal cost, prefer the one with fewer IV registers. Reduces register pressure without sacrificing performance.
-3. **Inner loop protection** (`dc5ead2194e`): Don't prefer auto-increment for an IV in an outer loop if that pointer is used in an inner loop — the inner loop would need indexed addressing, which is more expensive.
-4. **Doloop interaction** (`c4c5a70cb33`): Added `TARGET_DOLOOP_COST_FOR_COMPARE` to credit `dbra` savings, preventing IVOPTS from eliminating the loop counter IV in favor of pointer comparison.
-
-### Examples
-
-```c
-for (int i = 0; i < n; i++) dst[i] = src[i];
-```
-```asm
-; Before: indexed addressing — single counter, 10-cycle mem accesses
-move.l  (a0,d0.l),(a1,d0.l)
-addq.l  #4,d0
-
-; After: post-increment — separate pointer IVs, 4-cycle mem accesses
-move.l  (a0)+,(a1)+
-```
-
-### Test cases
-
-- `test_dbra_matching_counter()` — IVOPTS replaces integer IV with pointer IVs
-- `test_multiple_postinc()` — multiple pointer IVs in one loop
-- `test_multiple_postinc_short()` — short pointer increments
-- `test_matrix_mul()` — nested loop IV selection
-
----
-
-## 3. Autoincrement Optimization Pass
-
-Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=pre-no-self-loop-insert=1`) to keep tight loops in a single BB where auto-increment works naturally.
-
-**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
-
-Disable with: `-mno-m68k-autoinc`
-
-**Code:** `gcc/config/m68k/m68k-gimple-passes.cc`, `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/gcse.cc`
-
-### Implementation history
-
-The autoincrement optimization evolved through several iterations, each addressing a different class of missed opportunities:
-
-1. **GIMPLE split pass** (`6e3f1c35c3d`): The `m68k-autoinc-split` pass runs after IVOPTS (5.95a) and re-splits combined pointer increments so the later RTL `inc_dec` pass can fold them into `(a0)+`. IVOPTS sometimes combines separate pointer advances into a single multi-step increment.
-2. **RTL normalize pass** (`58daf90bee2`): The `m68k-normalize-autoinc` pass runs before `peephole2` and canonicalizes auto-increment patterns. Initially attempted as a modification to `gimplify.cc` but that caused ICEs on complex code.
-3. **Pre-RA conversion** (`fb441a5d443`, `c0e4abafcff`): The `m68k-pre-ra-autoinc` RTL pass runs after combine and scheduling (7.48a), before IRA. It handles three patterns on pseudos: multi-step indexed sequences (`(pseudo), 4(pseudo), 8(pseudo), addq` → 3× POST_INC), cross-BB post-increment (load in predecessor + increment in successor), and increment repositioning (moving increments past negative-offset accesses). Running pre-RA gives IRA POST_INC information, so it naturally allocates address registers without relying on the IRA promotion hook. Uses `constrain_operands(0, ...)` (strict=0) for pre-RA validation and `regno_reg_rtx[]` for canonical rtx identity (required for LRA's `SET_REGNO` in `lra_final_code_change`).
-4. **DF notification bug** (`fb441a5d443`): `try_convert_to_postinc()` modified RTL instructions without calling `df_insn_rescan()`, leaving stale dataflow references. This caused use-after-free crashes in `sched2`'s `df_note_compute` — diagnosed via the macOS `0xa5a5a5a5` freed-memory pattern.
-5. **Cross-BB post-increment** (`0f37617ba8a`): When a load in a predecessor BB is followed by an increment (`addq`) at the top of the fall-through BB, and the address register is dead on the other edge, the pass combines them into post-increment and deletes the `addq`. Saves 2 instructions per iteration in patterns like mintlib's `strcmp`.
-6. **PRE self-loop suppression** (`f260a47bf92`): PRE treats a preheader expression matching the loop body as partially redundant and inserts on the self-loop edge, creating a new latch BB. This adds +1 copy +1 jump per iteration and blocks `auto_inc_dec`. Suppressed with `--param=pre-no-self-loop-insert=1`.
-7. **POST_INC constraint validation** (`22cb73981b7`): All POST_INC creation points validate with `extract_insn()` + `constrain_operands()` after `recog_memoized()`. The pre-RA pass uses `strict=0`; the post-RA `try_merge_postinc` uses `strict=1`. Fixed an ICE where `extendsidi2` (constraint `<` = pre-dec only) got a POST_INC destination because `recog_memoized` only checks predicates (`nonimmediate_operand` accepts POST_INC) but not constraint letters. See [GCC_DEBUG.md § "recog_memoized is not sufficient"](GCC_DEBUG.md#recog_memoized-is-not-sufficient-for-constraint-validation).
-
-### Examples
-
-```asm
-; Before (within-BB indexed)    ; After (post-increment)
-    move.w  #1,(a0)                 move.w  #1,(a0)+
-    move.w  #2,2(a0)                move.w  #2,(a0)+
-
-; Before (cross-BB)             ; After
-    move.b  (%a0),%d0               move.b  (%a0)+,%d0
-    jeq     .done                   jeq     .done
-    addq    #1,%a0
-
-; Before (PRE edge split)       ; After (single-BB loop)
-    tst.b   -1(%a0)                 tst.b   (%a0)+
-    jne     .latch                  jne     .loop
-    ...
-    addq    #1,%a0
-    jra     .loop
-```
-
-### Test cases
-
-- `test_multiple_postinc()` — 4 post-increments in one iteration
-- `test_multiple_postinc_short()` — negative offset relocation
-- `test_postinc_write()` — post-increment on store, not load
-- `test_while_postinc()` — `strcpy`-style loop
-- `test_while_postinc_bounded()` — dual exit condition loop
-- `test_mintlib_strcmp()`, `test_libcmini_strcmp()` — real-world cross-BB patterns
-- `test_mintlib_strcpy()`, `test_libcmini_strcpy()` — string copy patterns
-- `test_mintlib_strlen()`, `test_libcmini_strlen()` — string length patterns
-
----
-
-## 4. Memory Access Merge Peepholes
-
-Combines adjacent small memory accesses into larger ones, and eliminates register intermediates in load+store+branch sequences by using mem-to-mem moves (68000 only).
-
-**Patterns:** `define_peephole2` in machine description
-
-**Code:** `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **Word merge** (`e66ddbf957a`): Adjacent `move.w` with consecutive post-increment or offsets are merged into a single `move.l`. Also handles offset+index addressing variants.
-2. **Offset+index merge** (`396797f5c35`): Extended merging to handle indexed addressing modes, not just plain register indirect.
-3. **Mem-to-mem optimization** (`3ace2ff7867`): On 68000, `move.b (a1)+,d0; move.b d0,(a0)+; jne .L` uses a register as intermediate. Since 68000 supports mem-to-mem moves, this collapses to `move.b (a1)+,(a0)+; jne .L` — saving one instruction and one register. The mem-to-mem move sets CC, so the branch can test it directly.
-4. **RMW with post-increment** (`c3ff97bed99`): Added `define_insn` and `define_peephole2` patterns for read-modify-write with post-increment addressing: `add/sub/and/or/eor.x dN,(aN)+`. The peephole collapses `move.x (aN),dT; op dS,dT; move.x dT,(aN)+` into a single `op.x dS,(aN)+` when the temporary register is dead. Uses code iterators (`rmw_op`, `rmw_comm_op`) to cover all five ALU operations and both commutative operand orderings. 68000 only — ColdFire lacks these addressing modes.
-
-### Examples
-
-```asm
-; Before (word merge)           ; After
-    move.w  #1,(a0)+                move.l  #$10002,(a0)+
-    move.w  #2,(a0)+
-
-; Before (mem-to-mem)           ; After (68000 only)
-    move.b  (a1)+,d0                move.b  (a1)+,(a0)+
-    move.b  d0,(a0)+                jne     .L
-    jne     .L
-
-; Before (RMW postinc)          ; After (68000 only)
-    move.w  (a0),d1                 add.w   d0,(a0)+
-    add.w   d0,d1
-    move.w  d1,(a0)+
-```
-
-### Test cases
-
-- `test_clear_struct()` — adjacent field clears merge into `clr.l`
-- `test_clear_struct_unorderred()` — requires reordering (§11) before merge
-- `test_clear_mixed_sizes()` — mixed-size clears
-- `test_copyn_16()` — constant-count copy merges word moves to long
-
----
-
-## 5. DBRA Loop Optimization
-
-Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propagation determines if the counter fits in 16 bits; when safe, 32-bit counters are narrowed to 16-bit to enable `dbra`.
-
-IVOPTS can transform count-down loops into pointer-comparison loops, preventing `dbra`. A new `TARGET_DOLOOP_COST_FOR_COMPARE` hook credits `dbra` in the IVOPTS cost model, keeping the counter IV for `dbra` over pointer comparison. For dynamic counts, `__builtin_assume()` can provide the range information needed.
-
-Disable with: `-mno-m68k-doloop`
-
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`
-
-### Implementation history
-
-1. **Initial dbra patterns** (`77b66e964e2`, `3c186d11313`): Inspired by Bebbo's amiga gcc6 work. Added basic `doloop_end` patterns to `m68k.md` that map to `dbra`.
-2. **Conservative doloop hooks** (`e28f7d76140`): Second attempt at dbra, using GCC's doloop infrastructure and being conservative about when to apply it. The key constraint: `dbra` operates on 16-bit registers (word decrement, branch on >= 0).
-3. **IVOPTS cost credit** (`c4c5a70cb33`): Added `TARGET_DOLOOP_COST_FOR_COMPARE` hook. Without it, IVOPTS eliminates the loop counter in favor of pointer comparison (`ptr != end`), making `dbra` impossible. The hook adds a cost penalty for eliminating the counter IV when `dbra` is available.
-4. **Unrolling interaction** (`8b90258683f`): Disabled IV splits in loop unrolling so unrolled iterations chain post-increments. Also consolidated counter increments for constant-iteration unrolled loops so the doloop pass can use `dbra` for the main loop.
-
-### Examples
-
-```c
-short count = 100;
-do { work(); } while (--count);
-```
-```asm
-; Before: separate decrement and branch
-subq.w  #1,d0
-bne     .loop
-
-; After: combined dbra
-dbra    d0,.loop
-```
-
-For dynamic values, `__builtin_assume()` provides range information:
-
-```c
-void process(int n) {
-    __builtin_assume(n > 0 && n <= 32767);
-    for (int i = n; i > 0; i--) work();
-}
-```
-```asm
-; Before (without assume): 32-bit counter
-subq.l  #1,d2
-bne     .loop
-
-; After (with assume): dbra is used
-dbra    d2,.loop
-```
-
-### Test cases
-
-- `test_dbra_const_count()` — constant 50 iterations → `moveq #49` + `dbra`
-- `test_dbra_matching_counter()` — matching counter types enable `dbra`
-- `test_dbra_mixed_counter()` — mixed sizes prevent `dbra` (negative test)
-- `test_doloop_const_small()` — small constant (100) → `dbra`
-- `test_doloop_himode()` — `unsigned short` counter with `__builtin_unreachable` bound
-- `test_doloop_simode_unbounded()` — unbounded `unsigned int` → no `dbra` (negative test)
-- `test_doloop_const_large()` — 100000 iterations → no `dbra` (negative test)
-- `test_matrix_add()` — nested loops, both using `dbra`
-- `test_matrix_mul()` — matrix-vector multiply with `dbra` inner loop
-
----
-
-## 6. Multiplication Optimization
-
-Narrows 32-bit multiplications to 16-bit `muls.w` when operand ranges are known to fit, and removes redundant sign extension after 16-bit multiply since `muls.w` already produces a 32-bit signed result.
-
-**Pass:** `m68k-narrow-index-mult` (new GIMPLE pass)
-
-Disable with: `-mno-m68k-narrow-index-mult`
-
-**Patterns:** `define_peephole2` for sign extension elimination
-
-**Code:** `gcc/config/m68k/m68k-gimple-passes.cc`, `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **Peephole for muls+ext.l** (`5e61d6f5c4e`): Added `define_peephole2` that folds `muls.w` + `ext.l` into just `muls.w`, since `muls.w` already produces a 32-bit signed result. The `ext.l` is completely redundant.
-2. **GIMPLE narrowing pass** (`f4813817686`): Added a GIMPLE pass that narrows 32-bit multiplications to 16-bit when VRP proves both operands fit in 16 bits. On 68000, a 32-bit multiply requires a `__mulsi3` library call (50+ cycles), while `muls.w` is a single instruction (38+2N cycles on 68000, much faster on 68020+).
-3. **Type mismatch fix** (`3d521ee7705`): When `input_prec == 16` and the input is unsigned short but `hi_type` is signed short, the multiply had a type mismatch. Fixed by always converting to `hi_type` when types differ, using `useless_type_conversion_p` to check.
-
-### Examples
-
-```c
-int idx = (row & 0xFF) * 320;
-```
-```asm
-; Before: 32-bit multiply (library call on 68000)
-jsr     __mulsi3
-ext.l   d0
-
-; After: 16-bit multiply, no extension needed
-muls.w  #320,d0
-```
-
-### Test cases
-
-- `test_matrix_mul()` — `muls.w` in inner loop with auto-increment
-- `test_no_elim_muls()` — `muls.w` produces 32-bit result, should NOT be modified
-
----
-
-## 7. ANDI Hoisting
-
-Replaces `andi.l #mask` or `andi.w #mask` for zero-extension with a hoisted `moveq #0` and register moves. This also optimizes explicit masking operations. A peephole2 combines `andi.l #$ffff` + `clr.w` into a single `moveq #0`.
-
-**Pass:** `m68k-elim-andi` (new RTL pass)
-
-**Patterns:** `define_peephole2` for `andi.l #$ffff` + `clr.w` → `moveq #0`
-
-Disable with: `-mno-m68k-elim-andi`
-
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **Initial implementation** (`0e6555c0b69`): Replaces `andi.l #$ff` / `andi.l #$ffff` used for zero-extension with a hoisted `moveq #0,dN` before the register's definition point. The `moveq` clears the upper bits, so subsequent byte/word operations preserve the zero upper bits naturally.
-2. **Loop hoisting fix** (`ec328e3263e`): Corrected hoisting of the pre-clearing `moveq #0` out of loops. The zero register must be established before the definition that feeds the `andi`, which may be a loop-carried value.
-3. **clr.w+move.b scan continuation** (`5d9c5565653`): The backward scan stopped at `DEFINES_BYTE` (e.g., `move.b`), missing a preceding `clr.w` that could be widened to `moveq #0`. For `WORD_TO_LONG` candidates, the scan now continues past byte definitions to find word-level definitions. When it finds `clr.w`, it widens it in-place to `moveq #0` (clearing all 32 bits), making the later `andi.l #65535` redundant.
-4. **and.w mask widening** (`5d9c5565653`): When the backward scan reaches function entry with no definition but finds `and.w #N` along the way (e.g., masking a parameter), the pass widens `and.w #N` to `and.l #N`. This clears bits 16-31 as a side effect, eliminating the later `andi.l #65535`.
-5. **clr.w-follows-andi bugfix** (`c7ec36f7730`): Removed `clrw_follows_andi_p`, which incorrectly deemed `andi.l #$ffff` redundant when `clr.w` followed. The reasoning was "andi only preserves low bits that clr.w will clear", but `andi.l #$ffff` *also* clears the high word (bits 16-31). Deleting it left the high word as garbage — producing wrong values when the register was later used in SImode (e.g., `move.l dN,d0` for a 4-byte struct argument like `point_s{0,0}`). Found via a game binary miscompilation where `clr.w d5` was generated instead of `clr.l d5`.
-6. **andi+clr.w peephole** (`c7ec36f7730`): Added a `define_peephole2` that combines `andi.l #$ffff` + `clr.w` into a single `moveq #0`. With `-mshort`, struct zeroing (e.g., `point_s{0,0}`) generates both instructions to clear all 32 bits — the peephole replaces 10 bytes / 28 cycles with 2 bytes / 4 cycles.
-
-### How it works
-
-On m68k, word (`.w`) and byte (`.b`) operations only modify the lower bits, leaving upper bits unchanged. When GCC needs a 32-bit value from a 16-bit operation, it generates `andi.l #65535` to zero-extend. This costs 6 bytes and 16 cycles on 68000.
-
-The pass instead inserts `moveq #0,dN` before the register's first definition, pre-clearing the upper bits. Since subsequent `.w`/`.b` operations don't touch the upper bits, they remain zero — making the `andi` redundant.
-
-**Constraint:** The pass must verify that no instruction between the `moveq #0` and the `andi` writes to bits wider than the extension width. A `muls.w` or `ext.l` would clobber the upper bits, invalidating the optimization.
-
-### Examples
-
-```c
-for (...) { use(bytes[i] & 0xFF); }
-```
-```asm
-; Before: repeated ANDI per iteration
-move.b  (a0)+,d0
-andi.l  #255,d0             ; 6 bytes, 16 cycles
-
-; After: hoisted zero register
-moveq   #0,d0               ; once, outside loop
-move.b  (a0)+,d0             ; upper bits stay zero
-```
-
-### Test cases
-
-- `test_elim_andi_basic()` — basic word load + decrement + reuse
-- `test_elim_andi_multi()` — chain of word operations
-- `test_elim_andi_loop()` — `andi` elimination inside loop (highest value)
-- `test_elim_andi_load()` — load from memory then use as 32-bit
-- `test_elim_andi_load2()` — two independent loads
-- `test_elim_andi_byte_load()` — byte load zero-extension
-- `test_elim_andi_byte_loop()` — byte extension in loop
-- `test_elim_andi_byte_index()` — byte used as array index
-- `test_no_elim_muls()` — `muls` clobbers upper bits (negative test)
-- `test_no_elim_ext()` — `ext.l` sets upper bits (negative test)
-- `test_no_elim_byte_word_op()` — word op clobbers bits 8-15 (negative test)
-- `test_cross_bb_simple()` — cross-BB definition
-- `test_cross_bb_cond()` — conditional definition paths
-- `test_cross_bb_loop()` — definition before loop
-- `test_andi_clrw_byte_def()` — `clr.w`+`move.b` pattern: scan past byte def to find widenable `clr.w`
-- `test_andi_widen_mask()` — `and.w #N` widening: widen to `and.l #N` to eliminate later `andi.l #65535`
-- `test_clr_struct_arg()` — regression test: struct zero arg must clear all 32 bits, not just low word
-
----
-
-## 8. Word Packing and Insert Patterns
-
-Improves code for packing 16-bit values into 32-bit registers. Folds `andi.l #$ffff` + `ori.l` sequences into `swap`+`move.w`+`swap`.
-
-**Pass:** `m68k-highword-opt` (new RTL pass)
-
-Disable with: `-mno-m68k-highword-opt`
-
-**Patterns:** `define_peephole2` for andi/ori folding
-
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **Insert patterns** (`60c4dbc510e`): Added `define_insn` patterns for inserting 16-bit values into `struct { short, short }` passed in registers. With `-mfastcall`, these structs are passed/returned in a single data register (high word = first field, low word = second field).
-2. **ANDI/ORI folding peepholes** (`61bbaa3c5fb`): Added `define_peephole2` patterns that recognize `andi.l #$ffff` + `ori.l` sequences (used by GCC for field insertion) and replace with `swap` + `move.w` + `swap`.
-3. **RTL highword pass** (`2519036243b`): Added the `m68k-highword-opt` RTL pass to handle more complex patterns that peephole2 cannot match, such as when the source and destination are in different registers or when intermediate operations separate the masking and insertion.
-4. **ICE fix** (`2519036243b`): Fixed an ICE in the word packing pass exposed by the cross-BB autoinc improvements.
-
-### Examples
-
-```c
-struct Point { short x, y; };
-struct Point make_point(short a, short b) { return {a, b}; }
-```
-```asm
-; Before: shift and OR (4 insns, 16 bytes)
-swap    d0
-clr.w   d0
-andi.l  #$ffff,d1
-or.l    d1,d0
-
-; After: direct packing (2 insns, 4 bytes)
-swap    d0
-move.w  d1,d0
-```
-
-Setting upper word only:
-
-```c
-x = (x & 0xFFFF) | 0x464F0000;
-```
-```asm
-; Before: 12 bytes
-andi.l  #$ffff,d0
-ori.l   #$464f0000,d0
-
-; After: 8 bytes
-swap    d0
-move.w  #$464f,d0
-swap    d0
-```
-
-### Test cases
-
-- `test_highword_extract_low()` — low word extraction (already optimal)
-- `test_highword_extract_high()` — high word: `clr.w; swap` → `swap`
-- `test_highword_extract_computed()` — high word + arithmetic
-- `test_highword_insert_low()` — low word insert (already optimal via `strict_low_part`)
-- `test_highword_insert_high()` — high word insert: `swap; clr.w; andi.l; or.l` → `swap; move.w; swap`
-- `test_highword_insert_computed()` — computed value into high word
-- `test_small_struct()` — struct packing in nested loop
-
----
-
-## 9. IRA Register Allocation Improvements
+### IRA Improvements
 
 Several changes improve IRA's register allocation quality for the m68k register architecture. Pointer pseudos are promoted from DATA_REGS to ADDR_REGS when used as memory base addresses, with deeper analysis for LRA mode that traces pointer derivation chains. The `TARGET_REGISTER_MOVE_COST` hook penalizes DATA→ADDR moves, guiding IRA's graph coloring to prefer data registers for arithmetic values. A new IRA parameter deduplicates operand references to prevent frequency inflation.
 
@@ -470,19 +92,6 @@ Disable pass-through merge with: `-fno-ira-merge-passthrough`
 **Patterns:** `*cbranchsi4_areg_zero`, `*cbranchsi4_areg_zero_rev` (`define_insn`), address register zero test (`define_peephole2`)
 
 **Code:** `gcc/config/m68k/m68k.cc` (`m68k_ira_change_pseudo_allocno_class()`), `gcc/config/m68k/m68k_costs.cc` (`m68k_register_move_cost_impl()`), `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/ira-color.cc`, `gcc/ira-int.h`, `gcc/common.opt`, `gcc/params.opt`
-
-### Implementation history
-
-1. **IRA promotion hook** (`595da26c5a1`): Added the `m68k_ira_change_pseudo_allocno_class` hook. When IRA is about to assign a pseudo-register to DATA_REGS but that pseudo is used as a memory base address (inside a MEM RTX), the hook promotes it to ADDR_REGS. This prevents the costly `move.l dN,aM` before every memory access.
-2. **Address register zero test** (`ea1920e44cf`): Added peephole2 + define_insn patterns to fix the NULL-check regression on 68000/68010 caused by IRA promotion. A naive peephole2 emitting separate `(set dN aN)` + `(branch on dN)` was undone by `cprop_hardreg` (9.18), which propagated the address register back and deleted the dead copy. The solution uses a parallel-with-clobber: the RTL still compares the address register `(eq %aN 0)`, but the `define_insn` output template emits `move.l %aN,%dN` and relies on CC elision to skip the `tst.l`. Since `cprop_hardreg` sees a comparison against `%aN` (not a copy to `%dN`), it has nothing to undo.
-3. **Redundant move elision** (`5d9c5565653`): The `*cbranchsi4_areg_zero` output template now checks `m68k_find_flags_value()` before emitting `move.l %aN,%dN`. When the preceding instruction (e.g., `move.l %aN,<mem>`) already sets CC for the address register, the move is skipped — the branch uses CC directly. Saves 2 bytes and 4 cycles per elided instance (15 instances in the game binary, all shared_ptr reference counting).
-4. **Register move cost** (`1dfd466f515`): Added `TARGET_REGISTER_MOVE_COST` hook, replacing the legacy `REGISTER_MOVE_COST` macro. Asymmetric cost: DATA→ADDR moves cost 3 (instead of the default 2), because values moved to address registers lose CC flag visibility — `add.l` on an address register does not set condition codes, so the compiler must insert separate `tst.l` instructions. The penalty guides IRA's graph coloring to prefer data registers for arithmetic, reducing unnecessary spills. Gated by `flag_m68k_ira_promote`. FP↔non-FP moves remain at cost 4.
-5. **IRA duplicate use dedup** (`1dfd466f515`): Added `--param=ira-ignore-duplicate-uses-in-insn=1` (default on for m68k). On m68k, `add.w %dN,%dN` lists the same register in two operand positions. Without dedup, IRA inflates the allocno frequency for that register, distorting thread priority during graph coloring and causing suboptimal register choices. The fix deduplicates operand references in `ira-build.cc` so each physical register is counted once per instruction.
-6. **HImode compare constraint reorder** (`1dfd466f515`): Moved `d,n` (data register vs immediate) to the first alternative for HI-mode compares in `m68k.md`. This biases IRA toward choosing data registers for HI-mode compare operands, complementing the register move cost penalty.
-7. **Allocno class narrowing** (`e6b6d6f65ae`): Fixed overly aggressive promotion to address registers for pseudos in chains. When IRA's cost analysis determines DATA_REGS is best but the allocno class was widened to GENERAL_REGS, the hook now narrows it back to DATA_REGS. Without this, IRA's thread coalescing can pull data-register-preferring pseudos into address registers, forcing reload to insert a copy through a data register.
-8. **Pointer-derived allocno promotion** (`f0e90897649`): Extended the promotion hook with three helpers for LRA mode: `pseudo_pointer_derived_p()` traces the def-use chain to check if a pseudo is derived from a pointer source (parameter, return value, or MEM load); `pseudo_only_addr_ops_p()` verifies all uses are address-register-compatible (memory bases, compares, copies — not arithmetic); `regno_addr_safe_context_p()` recursively checks each instruction's RTL context. When both conditions hold, the pseudo is promoted to ADDR_REGS even if IRA's constraint scan didn't see a direct MEM use. This catches pointer pseudos that pass through several copies before reaching a MEM operand.
-9. **Budget-based pass-through merge** (`f0e90897649`): Added `-fira-merge-passthrough` (default off globally, enabled for m68k in `m68k_option_override_internal`). In IRA's hierarchical allocator, pass-through allocnos (zero references at a child loop level) can be merged with their parent to eliminate loop-boundary copies. However, merging pre-assigns the parent's register, removing the allocno from the child-level coloring graph. When register pressure exceeds available registers, this removes a cheap spill candidate and can force a more expensive allocno to be spilled instead. The budget mechanism in `color_pass()` computes `budget = nrefs0_count - max(0, pressure - available)`: it merges pass-throughs up to the budget, leaving enough as spill candidates. For example, with 4 pass-throughs and pressure exceeding capacity by 1, the budget is 3 — three get merged (eliminating copies) and one remains spillable.
-10. **ColdFire ADDR_REGS promotion guard** (`22cb73981b7`, `572d8c3b4c5`): Excluded ColdFire from all ADDR_REGS promotion paths in `m68k_ira_change_pseudo_allocno_class`. The `!TARGET_COLDFIRE` guard covers both the `REG_POINTER + pseudo_used_as_mem_address_p` path and the LRA-specific `pseudo_pointer_derived_p` path, as well as the fallback `pseudo_used_as_mem_address_p` at the bottom of the function. On ColdFire, over-promoting pseudos to ADDR_REGS caused LRA to corrupt the dominator tree's ET forest data structure, producing an infinite loop in `et_splay()` during `pass_reorder_blocks`. ColdFire's restricted addressing modes (no `(d16,An)` with address register index) create constraints that IRA/LRA cannot resolve when too many pseudos are forced into ADDR_REGS.
 
 ### How it works
 
@@ -569,18 +178,104 @@ Register move cost (inner loop of `test_matrix_add` at O2):
 
 ---
 
-## 10. Improved Loop Unrolling
+## 3. Loop Optimization
+
+Loops are the highest-value optimization target — even a single saved instruction per iteration multiplies across thousands of executions. These changes improve induction variable selection for auto-increment, enable `dbra` for counted loops, and optimize loop unrolling with jump-table remainder dispatch.
+
+### Induction Variable Optimization
+
+Improves induction variable selection for auto-increment addressing. When the target supports auto-increment, IV step costs are discounted to zero if the step matches a memory access size (1, 2, or 4 bytes). On m68k, the `addq.l #2,a0` that IVOPTS costs for each pointer IV is absorbed into `(a0)+` for free — the same reasoning GCC already applies to doloop decrements. Without this, IVOPTS prefers fewer IVs with indexed addressing over separate pointer IVs that benefit from post-increment.
+
+Also prefers fewer IV registers when cost is equal, and avoids autoincrement in outer loops when the pointer is used in an inner loop.
+
+Disable step discount with: `-fno-ivopts-autoinc-step`
+
+**Pass:** `ivopts` (modified, `tree_ssa_iv_optimize()` in `gcc/tree-ssa-loop-ivopts.cc`)
+
+**Code:** `gcc/tree-ssa-loop-ivopts.cc`
+
+### Examples
+
+```c
+for (int i = 0; i < n; i++) dst[i] = src[i];
+```
+```asm
+; Before: indexed addressing — single counter, 10-cycle mem accesses
+move.l  (a0,d0.l),(a1,d0.l)
+addq.l  #4,d0
+
+; After: post-increment — separate pointer IVs, 4-cycle mem accesses
+move.l  (a0)+,(a1)+
+```
+
+### Test cases
+
+- `test_dbra_matching_counter()` — IVOPTS replaces integer IV with pointer IVs
+- `test_multiple_postinc()` — multiple pointer IVs in one loop
+- `test_multiple_postinc_short()` — short pointer increments
+- `test_matrix_mul()` — nested loop IV selection
+
+
+### DBRA Loop Optimization
+
+Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propagation determines if the counter fits in 16 bits; when safe, 32-bit counters are narrowed to 16-bit to enable `dbra`.
+
+IVOPTS can transform count-down loops into pointer-comparison loops, preventing `dbra`. A new `TARGET_DOLOOP_COST_FOR_COMPARE` hook credits `dbra` in the IVOPTS cost model, keeping the counter IV for `dbra` over pointer comparison. For dynamic counts, `__builtin_assume()` can provide the range information needed.
+
+Disable with: `-mno-m68k-doloop`
+
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`
+
+### Examples
+
+```c
+short count = 100;
+do { work(); } while (--count);
+```
+```asm
+; Before: separate decrement and branch
+subq.w  #1,d0
+bne     .loop
+
+; After: combined dbra
+dbra    d0,.loop
+```
+
+For dynamic values, `__builtin_assume()` provides range information:
+
+```c
+void process(int n) {
+    __builtin_assume(n > 0 && n <= 32767);
+    for (int i = n; i > 0; i--) work();
+}
+```
+```asm
+; Before (without assume): 32-bit counter
+subq.l  #1,d2
+bne     .loop
+
+; After (with assume): dbra is used
+dbra    d2,.loop
+```
+
+### Test cases
+
+- `test_dbra_const_count()` — constant 50 iterations → `moveq #49` + `dbra`
+- `test_dbra_matching_counter()` — matching counter types enable `dbra`
+- `test_dbra_mixed_counter()` — mixed sizes prevent `dbra` (negative test)
+- `test_doloop_const_small()` — small constant (100) → `dbra`
+- `test_doloop_himode()` — `unsigned short` counter with `__builtin_unreachable` bound
+- `test_doloop_simode_unbounded()` — unbounded `unsigned int` → no `dbra` (negative test)
+- `test_doloop_const_large()` — 100000 iterations → no `dbra` (negative test)
+- `test_matrix_add()` — nested loops, both using `dbra`
+- `test_matrix_mul()` — matrix-vector multiply with `dbra` inner loop
+
+
+### Loop Unrolling
 
 `TARGET_PREFER_RUNTIME_UNROLL_TABLEJUMP` hook replaces the default compare cascade with a jump table, dispatching the remainder in constant time (~3 instructions + 2N bytes of data). Constant-iteration loops get their decrement copies consolidated into a single counter for `dbra`. Disables IV splitting so unrolled copies chain post-increments instead of using base+offset. Register renaming is enabled at -O2+ since m68k has no register encoding differences.
 
 **Code:** `gcc/config/m68k/m68k.cc`, `gcc/loop-unroll.cc`, `gcc/loop-doloop.cc`
-
-### Implementation history
-
-1. **Initial Duff's device** (`19cadf4af44`): Replaced GCC's default unrolled remainder (a serial compare cascade) with a modulo-loop approach: a small loop for the leftover iterations, then the main unrolled loop. Smaller and faster than the cascade.
-2. **SjLj exception fix** (`34e4bb3426d`): The modulo-loop path called `single_succ_edge`/`single_pred_edge` after `make_edge` had added additional edges, causing assertion failures. SjLj exceptions add extra EH edges that broke the dominator tree. Disabled modulo unrolling entirely for SjLj.
-3. **Jump-table rewrite** (`97c42dbf01a`): Replaced the modulo-loop approach with a jump table: `move.w .tab(pc,d1.w),d1; jmp 2(pc,d1.w)`. Constant-time dispatch regardless of remainder value. Reuses most of GCC's default Duff's-device mechanism but dispatches via table instead of compare cascade.
-4. **IV split disable** (`8b90258683f`): Disabled IV splitting in loop unrolling so unrolled copies chain post-increments (`(a0)+, (a0)+, ...`) instead of using base+offset (`0(a0), 2(a0), 4(a0), ...`). Also consolidated counter increments for constant-iteration loops so the doloop pass can apply `dbra`.
 
 ### Examples
 
@@ -637,7 +332,7 @@ while (count--) {
 
 ---
 
-## 11. Memory Access Reordering
+## 4. Memory Access Reordering
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses share a common base pointer. Verifies reordering safety using GCC's alias oracle. Runs before store-merging at `-O1` and above (including `-Os`).
 
@@ -645,14 +340,7 @@ Reorders memory accesses through a base pointer to be sequential by offset, enab
 
 Disable with: `-mno-m68k-reorder-mem`
 
-**Code:** `gcc/config/m68k/m68k-gimple-passes.cc`
-
-### Implementation history
-
-1. **Initial pass** (`30c150960a9`): Added a GIMPLE pass that reorders indexed memory accesses through the same base pointer in ascending offset order. This enables the store-merging pass (which requires stores in offset order) and the autoincrement pass (which needs sequential access).
-2. **Alias safety** (`0d7b02a53d0`): Fixed a miscompilation: a store with a memory source could be reordered past a write that initializes that source. The pass originally only checked whether intervening statements clobber the store's destination, not its source operand.
-3. **Build stability** (`c800837c5cb`): Re-enabled the pass after fixing the alias bug. Added individual disable flags for each m68k pass.
-4. **Constant-address normalization**: When loop unrolling produces MEM_REFs with different `INTEGER_CST` base pointers (e.g. stores to `$8258`, `$825A`, `$825A+2`, `$825A+4`), the pass now rewrites them to share the lowest address as a common base with increasing offsets (`$8258+0`, `$8258+2`, `$8258+4`, `$8258+6`). This lets RTL expand use a single pseudo for the base address, enabling the full sequence to be merged via post-increment. Gate widened from `-O2` (excluding `-Os`) to `-O1` and above.
+**Code:** `gcc/config/m68k/m68k-pass-memreorder.cc`
 
 ### Examples
 
@@ -702,7 +390,259 @@ move.l  (%a0)+,(%a1)+      ; stores 3+4 merged
 
 ---
 
-## 12. Single-Bit Extraction
+## 5. Autoincrement Optimization
+
+Post-increment addressing (`(a0)+`) saves both an instruction and cycles by folding the pointer advance into the memory access. These passes convert indexed memory accesses to post-increment form, both within and across basic blocks, and clean up redundant copies left over from loop unrolling.
+
+### Autoincrement Pass
+
+Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=pre-no-self-loop-insert=1`) to keep tight loops in a single BB where auto-increment works naturally.
+
+**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
+
+Disable with: `-mno-m68k-autoinc`
+
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/gcse.cc`
+
+### Examples
+
+```asm
+; Before (within-BB indexed)    ; After (post-increment)
+    move.w  #1,(a0)                 move.w  #1,(a0)+
+    move.w  #2,2(a0)                move.w  #2,(a0)+
+
+; Before (cross-BB)             ; After
+    move.b  (%a0),%d0               move.b  (%a0)+,%d0
+    jeq     .done                   jeq     .done
+    addq    #1,%a0
+
+; Before (PRE edge split)       ; After (single-BB loop)
+    tst.b   -1(%a0)                 tst.b   (%a0)+
+    jne     .latch                  jne     .loop
+    ...
+    addq    #1,%a0
+    jra     .loop
+```
+
+### Test cases
+
+- `test_multiple_postinc()` — 4 post-increments in one iteration
+- `test_multiple_postinc_short()` — negative offset relocation
+- `test_postinc_write()` — post-increment on store, not load
+- `test_while_postinc()` — `strcpy`-style loop
+- `test_while_postinc_bounded()` — dual exit condition loop
+- `test_mintlib_strcmp()`, `test_libcmini_strcmp()` — real-world cross-BB patterns
+- `test_mintlib_strcpy()`, `test_libcmini_strcpy()` — string copy patterns
+- `test_mintlib_strlen()`, `test_libcmini_strlen()` — string length patterns
+
+
+### Available Copy Elimination
+
+Removes redundant register-to-register copies that are already established on all incoming paths. Primarily cleans up after `inc_dec`, which reintroduces copies in unrolled loop peels. Eliminating these before IRA allows the register allocator to coalesce registers.
+
+Disable with: `-mno-m68k-avail-copy-elim`
+
+**Pass:** `m68k-avail-copy-elim` (new RTL pass, runs after `inc_dec`)
+
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`
+
+### How it works
+
+The pass performs a forward dataflow analysis tracking which register copies (`reg_A = reg_B`) are available at each program point. At basic block entries, it intersects the available copies from all predecessors. When it finds a copy instruction whose source-destination pair is already available (i.e., the copy is redundant), it deletes the instruction.
+
+This is particularly effective for unrolled loops where each peel iteration has its own copy of the loop's register setup, but `inc_dec` has already merged the increments into post-increment addressing — making the separate copies redundant.
+
+---
+
+## 6. 16/32-bit Optimization
+
+The m68k's word-oriented architecture means 16-bit operations are often cheaper than 32-bit equivalents, and upper register bits require explicit management. These passes narrow multiplications, hoist zero-extension operations, and optimize 16-bit value packing into 32-bit registers.
+
+### Multiplication Optimization
+
+Narrows 32-bit multiplications to 16-bit `muls.w` when operand ranges are known to fit, and removes redundant sign extension after 16-bit multiply since `muls.w` already produces a 32-bit signed result.
+
+**Pass:** `m68k-narrow-index-mult` (new GIMPLE pass)
+
+Disable with: `-mno-m68k-narrow-index-mult`
+
+**Patterns:** `define_peephole2` for sign extension elimination
+
+**Code:** `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k.md`
+
+### Examples
+
+```c
+int idx = (row & 0xFF) * 320;
+```
+```asm
+; Before: 32-bit multiply (library call on 68000)
+jsr     __mulsi3
+ext.l   d0
+
+; After: 16-bit multiply, no extension needed
+muls.w  #320,d0
+```
+
+### Test cases
+
+- `test_matrix_mul()` — `muls.w` in inner loop with auto-increment
+- `test_no_elim_muls()` — `muls.w` produces 32-bit result, should NOT be modified
+
+
+### ANDI Hoisting
+
+Replaces `andi.l #mask` or `andi.w #mask` for zero-extension with a hoisted `moveq #0` and register moves. This also optimizes explicit masking operations. A peephole2 combines `andi.l #$ffff` + `clr.w` into a single `moveq #0`.
+
+**Pass:** `m68k-elim-andi` (new RTL pass)
+
+**Patterns:** `define_peephole2` for `andi.l #$ffff` + `clr.w` → `moveq #0`
+
+Disable with: `-mno-m68k-elim-andi`
+
+**Code:** `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k.md`
+
+### How it works
+
+On m68k, word (`.w`) and byte (`.b`) operations only modify the lower bits, leaving upper bits unchanged. When GCC needs a 32-bit value from a 16-bit operation, it generates `andi.l #65535` to zero-extend. This costs 6 bytes and 16 cycles on 68000.
+
+The pass instead inserts `moveq #0,dN` before the register's first definition, pre-clearing the upper bits. Since subsequent `.w`/`.b` operations don't touch the upper bits, they remain zero — making the `andi` redundant.
+
+**Constraint:** The pass must verify that no instruction between the `moveq #0` and the `andi` writes to bits wider than the extension width. A `muls.w` or `ext.l` would clobber the upper bits, invalidating the optimization.
+
+### Examples
+
+```c
+for (...) { use(bytes[i] & 0xFF); }
+```
+```asm
+; Before: repeated ANDI per iteration
+move.b  (a0)+,d0
+andi.l  #255,d0             ; 6 bytes, 16 cycles
+
+; After: hoisted zero register
+moveq   #0,d0               ; once, outside loop
+move.b  (a0)+,d0             ; upper bits stay zero
+```
+
+### Test cases
+
+- `test_elim_andi_basic()` — basic word load + decrement + reuse
+- `test_elim_andi_multi()` — chain of word operations
+- `test_elim_andi_loop()` — `andi` elimination inside loop (highest value)
+- `test_elim_andi_load()` — load from memory then use as 32-bit
+- `test_elim_andi_load2()` — two independent loads
+- `test_elim_andi_byte_load()` — byte load zero-extension
+- `test_elim_andi_byte_loop()` — byte extension in loop
+- `test_elim_andi_byte_index()` — byte used as array index
+- `test_no_elim_muls()` — `muls` clobbers upper bits (negative test)
+- `test_no_elim_ext()` — `ext.l` sets upper bits (negative test)
+- `test_no_elim_byte_word_op()` — word op clobbers bits 8-15 (negative test)
+- `test_cross_bb_simple()` — cross-BB definition
+- `test_cross_bb_cond()` — conditional definition paths
+- `test_cross_bb_loop()` — definition before loop
+- `test_andi_clrw_byte_def()` — `clr.w`+`move.b` pattern: scan past byte def to find widenable `clr.w`
+- `test_andi_widen_mask()` — `and.w #N` widening: widen to `and.l #N` to eliminate later `andi.l #65535`
+- `test_clr_struct_arg()` — regression test: struct zero arg must clear all 32 bits, not just low word
+
+
+### Word Packing
+
+Improves code for packing 16-bit values into 32-bit registers. Folds `andi.l #$ffff` + `ori.l` sequences into `swap`+`move.w`+`swap`.
+
+**Pass:** `m68k-highword-opt` (new RTL pass)
+
+Disable with: `-mno-m68k-highword-opt`
+
+**Patterns:** `define_peephole2` for andi/ori folding
+
+**Code:** `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k.md`
+
+### Examples
+
+```c
+struct Point { short x, y; };
+struct Point make_point(short a, short b) { return {a, b}; }
+```
+```asm
+; Before: shift and OR (4 insns, 16 bytes)
+swap    d0
+clr.w   d0
+andi.l  #$ffff,d1
+or.l    d1,d0
+
+; After: direct packing (2 insns, 4 bytes)
+swap    d0
+move.w  d1,d0
+```
+
+Setting upper word only:
+
+```c
+x = (x & 0xFFFF) | 0x464F0000;
+```
+```asm
+; Before: 12 bytes
+andi.l  #$ffff,d0
+ori.l   #$464f0000,d0
+
+; After: 8 bytes
+swap    d0
+move.w  #$464f,d0
+swap    d0
+```
+
+### Test cases
+
+- `test_highword_extract_low()` — low word extraction (already optimal)
+- `test_highword_extract_high()` — high word: `clr.w; swap` → `swap`
+- `test_highword_extract_computed()` — high word + arithmetic
+- `test_highword_insert_low()` — low word insert (already optimal via `strict_low_part`)
+- `test_highword_insert_high()` — high word insert: `swap; clr.w; andi.l; or.l` → `swap; move.w; swap`
+- `test_highword_insert_computed()` — computed value into high word
+- `test_small_struct()` — struct packing in nested loop
+
+---
+
+## 7. Various Smaller Optimizations
+
+Several independent optimizations that each target a specific code pattern: merging adjacent memory accesses, replacing shifts with constant-time bit tests, reordering loads for condition code tracking, and relaxing tail call restrictions under the fastcall ABI.
+
+### Merge Peepholes
+
+Combines adjacent small memory accesses into larger ones, and eliminates register intermediates in load+store+branch sequences by using mem-to-mem moves (68000 only).
+
+**Patterns:** `define_peephole2` in machine description
+
+**Code:** `gcc/config/m68k/m68k.md`
+
+### Examples
+
+```asm
+; Before (word merge)           ; After
+    move.w  #1,(a0)+                move.l  #$10002,(a0)+
+    move.w  #2,(a0)+
+
+; Before (mem-to-mem)           ; After (68000 only)
+    move.b  (a1)+,d0                move.b  (a1)+,(a0)+
+    move.b  d0,(a0)+                jne     .L
+    jne     .L
+
+; Before (RMW postinc)          ; After (68000 only)
+    move.w  (a0),d1                 add.w   d0,(a0)+
+    add.w   d0,d1
+    move.w  d1,(a0)+
+```
+
+### Test cases
+
+- `test_clear_struct()` — adjacent field clears merge into `clr.l`
+- `test_clear_struct_unorderred()` — requires reordering (§4) before merge
+- `test_clear_mixed_sizes()` — mixed-size clears
+- `test_copyn_16()` — constant-count copy merges word moves to long
+
+
+### Bit Extraction
 
 Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles, while `btst` tests any bit in constant time. For unsigned extraction (result 0 or 1), `neg.b` converts the `sne` output from 0xFF to 0x01. For signed 1-bit fields, `sne` already produces the correct -1/0 result, saving one instruction. Disabled on 68020+ where `bfextu`/`bfexts` handle this natively.
 
@@ -711,11 +651,6 @@ Disable with: `-mno-m68k-btst-extract`
 **Patterns:** `cstore_btst` `define_insn`, `define_peephole2`
 
 **Code:** `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **QI-mode patterns** (`64c9c826e66`): Added `cstore_btst` pattern and supporting peephole2. The `define_insn` emits `btst #N,<ea>; sne dN` directly. For unsigned results, a `neg.b` follows to convert `0xFF` → `0x01`. For signed 1-bit fields, `sne` already produces the correct `-1`/`0` result (`STORE_FLAG_VALUE = -1` on m68k).
-2. **HI-mode patterns** (`34a9967708a`): Extended btst extraction peephole2 to HI mode (16-bit values, common with `-mshort`). Also added `ashiftrt` matching — when the source is signed, GCC generates arithmetic shift right, but for single-bit extraction `(x >> N) & 1` the result is identical to logical shift. For shifts exceeding the 68000's immediate limit (1-8), the constant-time `btst` is especially profitable since it avoids a register load for the shift count.
 
 ### How it works
 
@@ -770,43 +705,14 @@ sne     d0
 - `test_btst_ashiftrt_hi_const()` — HI-mode arithmetic shift by 5 → `btst #5` (within immediate limit)
 - `test_bit_struct_active()` through `test_bit_struct_hidden()` — bitfield operations at various positions
 
----
 
-## 13. Available Copy Elimination
-
-Removes redundant register-to-register copies that are already established on all incoming paths. Primarily cleans up after `inc_dec`, which reintroduces copies in unrolled loop peels. Eliminating these before IRA allows the register allocator to coalesce registers.
-
-Disable with: `-mno-m68k-avail-copy-elim`
-
-**Pass:** `m68k-avail-copy-elim` (new RTL pass, runs after `inc_dec`)
-
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`
-
-### Implementation history
-
-1. **Created alongside unrolling rewrite** (`97c42dbf01a`): When `inc_dec` converts address+increment pairs to post-increment in unrolled loop peels, it reintroduces register copies that were previously optimized away. These redundant copies increase register pressure and can cause unnecessary spills. The `m68k-avail-copy-elim` pass runs after `inc_dec` (7.29a) and before IRA, eliminating copies that are already established on all incoming paths.
-
-### How it works
-
-The pass performs a forward dataflow analysis tracking which register copies (`reg_A = reg_B`) are available at each program point. At basic block entries, it intersects the available copies from all predecessors. When it finds a copy instruction whose source-destination pair is already available (i.e., the copy is redundant), it deletes the instruction.
-
-This is particularly effective for unrolled loops where each peel iteration has its own copy of the loop's register setup, but `inc_dec` has already merged the increments into post-increment addressing — making the separate copies redundant.
-
----
-
-## 14. Load Reordering for CC Tracking
+### CC Reordering
 
 On m68k, `move` sets CC. If the register tested by a branch is not the last one loaded, `final` must emit an explicit `tst`. This pass reorders loads so the tested register is loaded last, allowing `final` to elide the `tst`.
 
 **Pass:** `m68k-reorder-cc` (new RTL pass)
 
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc`
-
-### Implementation history
-
-1. **Single commit** (`0bce85e46b4`): Added the `m68k-reorder-cc` RTL pass. It works in two modes:
-   - **Within-BB reorder:** When two loads in the same basic block are followed by a branch testing one of them, and the loads are independent (no data dependency), swap them so the tested register is loaded last.
-   - **Cross-BB sink:** When a load in a predecessor BB feeds a branch at the top of a successor BB, and there's an independent load between them that could be moved, sink the tested load past the independent one.
+**Code:** `gcc/config/m68k/m68k-pass-miscopt.cc`
 
 ### How it works
 
@@ -834,19 +740,12 @@ This pass ensures the register being tested is the last one written before the b
 - `test_mintlib_strcmp()` — two-byte compare loop, reordered for CC
 - `test_libcmini_strcmp()` — same pattern, different implementation
 
----
 
-## 15. Sibcall Optimization
+### Sibcall
 
 Loosens restrictions on sibcall (tail call) optimization under the fastcall ABI. The stock backend conservatively disables sibcalls when parameter registers differ between caller and callee, but under fastcall many of these cases are safe because the arguments are already in the right registers or can be trivially rearranged.
 
 **Code:** `gcc/config/m68k/m68k.cc`
-
-### Implementation history
-
-1. **Initial disable** (`b26508044c3`): Sibcalls were initially disabled entirely with `-mfastcall` because the register-based calling convention made it impossible to guarantee safe register assignments in all cases.
-2. **First fix** (`57daa24129a`): Enabled sibcalls for a subset of cases where register assignments were provably safe.
-3. **Full relaxation** (`5c57312a773`): Loosened restrictions further. Under fastcall ABI, arguments are passed in registers (`d0`, `d1`, `a0`, `a1`), so many caller→callee transitions can be a simple `jra` jump without any register shuffling.
 
 ### Examples
 
@@ -869,35 +768,6 @@ short appl_bvset(short bvdisk, short bvhard) {
     ext.l   %d0
     jra     mt_appl_bvset
 ```
-
----
-
-## 16. LRA Register Allocator
-
-GCC provides two register allocators that run after IRA's global allocation: **reload** (legacy, constraint-based patching) and **LRA** (Local Register Allocator, constraint-driven with iterative elimination). LRA has been GCC's default for most targets since GCC 5, but m68k was never switched — until now.
-
-**Code:** `gcc/config/m68k/m68k.h` (`-mlra` Init(1)), `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k-rtl-passes.cc`, `gcc/config/m68k/m68k.md`
-
-### Implementation history
-
-1. **LRA as default** (`539281eb0b8`): Switched m68k to use LRA by default (`-mlra` Init(1)). The legacy reload allocator remains available via `-mno-lra`. Fire Flight binary reduced by 1126 bytes (1.6%) — significant for a real-world game. For most simple functions LRA and reload produce equivalent code; LRA wins on complex register-pressure scenarios.
-
-2. **Canonical scaled index pass** (`539281eb0b8`): Added `m68k_pass_canon_scaled_index` (pass 7.29b in [GCC_PASSES.md](GCC_PASSES.md)), which rewrites 3-register scaled index addresses `(base + index * scale + offset)` into the canonical `(plus (plus (ashift idx scale) base) offset)` form before LRA sees them. Without this, LRA cannot match these addresses against the `*lea` pattern and falls back to multi-instruction sequences.
-
-3. **Tablejump UNSPEC patterns** (`539281eb0b8`): Replaced the `(d8,PC,Xn)` addressing in casesi tablejump with `UNSPEC_TABLEJUMP_LOAD`. LRA requires an address register for the index in `(d8,PC,Xn)`, but the jump table index is naturally in a data register. The UNSPEC avoids the constraint conflict by hiding the addressing mode from the allocator — the output template emits the correct assembly directly.
-
-4. **Mulhi3 constraint tightening** (`539281eb0b8`): Tightened `smulhi3`/`umulhi3` register constraints to avoid LRA regressions. LRA's iterative approach is more sensitive to loose constraints than reload's single-pass patching.
-
-5. **LEA indexed displacement ICE fix** (`d9f2481eab9`): Fixed an ICE on 68000 and ColdFire where indexed addressing `(d8,An,Xn)` displacement exceeds the 8-bit signed limit after LRA eliminates the frame pointer (`vfp → sp + frame_size`). Added two `define_insn_and_split` patterns before `*lea`:
-
-   - `*lea_indexed_disp_scaled` — ColdFire only: handles `base + index * scale + displacement`
-   - `*lea_indexed_disp` — 68000 + ColdFire: handles `base + index + displacement`
-
-   Both use register/const constraints (not `"p"`) so LRA can always satisfy them. A C output block checks the displacement at assembly time: in-range values emit a single LEA; out-of-range values return `"#"`, triggering a post-reload split into `lea (An,Xn),dest` + `lea disp(dest),dest`. The 68020+ is unaffected (32-bit base displacement via full extension word).
-
-### Disable
-
-`-mno-lra` reverts to the legacy reload allocator.
 
 ---
 
@@ -937,9 +807,9 @@ int memcmp(const void *s1, const void *s2, size_t n) {
 
 **Optimizations applied:**
 
-1. **Induction Variable (§2):** IVOPTS selects separate pointer IVs instead of a single integer counter, enabling post-increment
-2. **Autoincrement Pass (§3):** Converts `(a0,d2.l)` indexed addressing to `(a0)+` post-increment
-3. **IRA Register Class (§9):** Keeps pointers in address registers, avoiding `move.l dN,aM` copies
+1. **Induction Variable (§3):** IVOPTS selects separate pointer IVs instead of a single integer counter, enabling post-increment
+2. **Autoincrement Pass (§5):** Converts `(a0,d2.l)` indexed addressing to `(a0)+` post-increment
+3. **IRA Register Class (§2):** Keeps pointers in address registers, avoiding `move.l dN,aM` copies
 
 **Result:** 43% faster, 30% smaller code.
 
@@ -951,7 +821,7 @@ The following optimizations are not yet implemented but would further improve m6
 
 ### B.1 Residual `and.l #65535` After Word Operations
 
-The ANDI hoisting pass (§7) handles single-BB cases well, but several patterns remain:
+The ANDI hoisting pass (§6) handles single-BB cases well, but several patterns remain:
 
 - **Cross-BB duplication:** When both branches of a conditional end with `and.l #65535` (e.g., `test_cross_bb_cond`), hoisting `moveq #0` before the branch point would eliminate both.
 - **Sequential word ops:** `subq.w` after a `move.w` load re-dirties bits 16-31, requiring a second `and.l #65535` that the backward scan does not eliminate because it stops at the word operation.
@@ -959,7 +829,7 @@ The ANDI hoisting pass (§7) handles single-BB cases well, but several patterns 
 
 ### B.2 Redundant TST Elimination
 
-The m68k `move` instruction sets condition codes, but GCC often generates redundant `tst` instructions before branches. The `m68k-reorder-cc` pass (§14) addresses the common case where loads can be reordered so the tested register is loaded last, but the general case — where `move` and branch are separated by register allocation or instruction scheduling — remains.
+The m68k `move` instruction sets condition codes, but GCC often generates redundant `tst` instructions before branches. The `m68k-reorder-cc` pass (§7) addresses the common case where loads can be reordered so the tested register is loaded last, but the general case — where `move` and branch are separated by register allocation or instruction scheduling — remains.
 
 ### B.3 32-bit Loop Down-Counting
 
@@ -967,7 +837,7 @@ When `int` is 32 bits, GCC generates up-counting loops with three loop-control i
 
 ### B.4 Read-Modify-Write with Auto-Increment (RESOLVED)
 
-Resolved in §4 point 4 (`c3ff97bed99`). Added `define_insn` and `define_peephole2` patterns for `add/sub/and/or/eor.x dN,(aN)+`.
+Resolved in §7 point 4 (`c3ff97bed99`). Added `define_insn` and `define_peephole2` patterns for `add/sub/and/or/eor.x dN,(aN)+`.
 
 ### B.5 16-bit Register Spills
 

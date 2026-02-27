@@ -10,7 +10,7 @@ Follow these steps:
 
 1. **Understand the optimization**: What code pattern is being targeted? What should the before/after look like in m68k assembly?
 
-2. **Check if it already exists**: Search `/Users/peylow/m68k-atari-mint-gcc/build/M68K_OPTIMIZATIONS.md` and Appendix B (known missing optimizations) for overlap. Also search `gcc/config/m68k/m68k.md`, `gcc/config/m68k/m68k-rtl-passes.cc`, and `gcc/config/m68k/m68k-gimple-passes.cc` for related code.
+2. **Check if it already exists**: Search `/Users/peylow/m68k-atari-mint-gcc/build/M68K_OPTIMIZATIONS.md` and Appendix B (known missing optimizations) for overlap. Also search `gcc/config/m68k/m68k.md`, `gcc/config/m68k/m68k-pass-regalloc.cc`, `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k-pass-memreorder.cc`, and `gcc/config/m68k/m68k-pass-miscopt.cc` for related code.
 
 3. **Identify the right IR level**: Is this a GIMPLE-level optimization (high-level, before register allocation) or RTL-level (low-level, after instruction selection)? Check `/Users/peylow/m68k-atari-mint-gcc/build/GCC_ARCHITECTURE.md` for guidance on which IR level is appropriate.
 
@@ -19,7 +19,7 @@ Follow these steps:
    - Which existing passes might interfere or interact?
    - Should it run before or after register allocation?
 
-5. **Find similar existing implementations**: Look at the m68k-specific passes in `gcc/config/m68k/m68k-rtl-passes.cc` and `gcc/config/m68k/m68k-gimple-passes.cc` for patterns to follow. Identify the most similar existing pass.
+5. **Find similar existing implementations**: Look at the m68k-specific passes in `gcc/config/m68k/m68k-pass-regalloc.cc`, `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k-pass-memreorder.cc`, and `gcc/config/m68k/m68k-pass-miscopt.cc` for patterns to follow. Identify the most similar existing pass.
 
 6. **Identify potential pitfalls**: Check for known gotchas:
    - DF notification requirements for RTL passes

@@ -524,7 +524,7 @@ Main optimization pipeline run on each function.
 #### `m68k_pass_autoinc_split`
 
 **Location**: After `pass_iv_optimize` (5.95) in Phase 5
-**Source**: `gcc/config/m68k/m68k-gimple-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-autoinc.cc`
 
 **Purpose**: Split autoincrement pointer operations that span multiple statements, enabling later RTL passes to use post-increment addressing.
 
@@ -540,7 +540,7 @@ Main optimization pipeline run on each function.
 #### `m68k_pass_narrow_index_mult`
 
 **Location**: After `pass_vrp` (Value Range Propagation) in Phase 5
-**Source**: `gcc/config/m68k/m68k-gimple-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 **Purpose**: Narrow 32-bit multiplications to 16-bit when operand ranges fit, enabling use of `muls.w` instead of library calls on 68000.
 
@@ -559,7 +559,7 @@ muls.w  #320,d0
 #### `m68k_pass_reorder_mem`
 
 **Location**: Before `pass_store_merging` (5.124) in Phase 5
-**Source**: `gcc/config/m68k/m68k-gimple-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-memreorder.cc`
 
 **Purpose**: Reorder scattered struct field accesses by memory offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases: when unrolling produces MEM_REFs with different `INTEGER_CST` pointers to contiguous memory, rewrites them to share a common base. Runs at `-O1` and above (including `-Os`).
 
@@ -568,14 +568,14 @@ muls.w  #320,d0
 #### `m68k_pass_avail_copy_elim`
 
 **Location**: After `pass_inc_dec` (7.29) in Phase 7
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-autoinc.cc`
 
 **Purpose**: Eliminate redundant register copies that are already available on all incoming paths. Cleans up copies reintroduced by loop unrolling before IRA.
 
 #### `m68k_pass_opt_autoinc`
 
 **Location**: After `pass_sched` (7.47) in Phase 7
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-autoinc.cc`
 
 **Purpose**: Pre-RA auto-increment optimization. Handles multi-step indexed sequences, cross-BB post-increment, and increment repositioning on pseudos. Runs before IRA so the register allocator sees POST_INC patterns and naturally allocates address registers.
 
@@ -595,7 +595,7 @@ muls.w  #320,d0
 #### `m68k_pass_normalize_autoinc`
 
 **Location**: Before `pass_peephole2` (9.14) in Phase 9
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-autoinc.cc`
 
 **Purpose**: LRA decomposition recovery. Reconstructs POST_INC addressing that LRA decomposed into separate increment + negative-offset access. Also retains increment normalization as a fallback for patterns LRA/reload may re-introduce.
 
@@ -613,14 +613,14 @@ muls.w  #320,d0
 #### `m68k_pass_reorder_for_cc`
 
 **Location**: After `pass_peephole2` (9.14) in Phase 9
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-miscopt.cc`
 
 **Purpose**: Reorder loads so the register tested by a conditional branch is set by the immediately preceding instruction, allowing `final` to elide the `tst`.
 
 #### `m68k_pass_elim_andi`
 
 **Location**: After `pass_fast_rtl_dce` (9.19) in Phase 9
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 **Purpose**: Replace `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves.
 
@@ -640,7 +640,7 @@ muls.w  #320,d0
 #### `m68k_pass_highword_opt`
 
 **Location**: After `pass_fast_rtl_dce` (9.19), before `m68k_pass_elim_andi` in Phase 9
-**Source**: `gcc/config/m68k/m68k-rtl-passes.cc`
+**Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 **Purpose**: Optimize word packing, including `struct { short, short }` construction and combining `andi.l #$ffff` + `ori.l #xxxx0000` sequences.
 

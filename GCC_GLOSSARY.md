@@ -66,7 +66,7 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 **IV** (Induction Variable) — A variable that changes by a fixed amount each loop iteration. Typically loop counters (`i++`) and pointer advances (`p += 4`).
 
 <a id="ivopts"></a>
-**IVOPTS** (Induction Variable Optimizations) — GIMPLE pass (5.95) that selects the best set of [IVs](#iv) for a loop. On m68k, this is where integer-indexed loops become pointer-chasing loops suitable for `(a0)+`. See [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-induction-variable-optimization).
+**IVOPTS** (Induction Variable Optimizations) — GIMPLE pass (5.95) that selects the best set of [IVs](#iv) for a loop. On m68k, this is where integer-indexed loops become pointer-chasing loops suitable for `(a0)+`. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization).
 
 <a id="lim"></a>
 **LIM** (Loop Invariant Motion) — Moves computations that produce the same result every iteration to before the loop. `for(i) { t = a+b; }` → `t = a+b; for(i) { }`.
@@ -102,7 +102,7 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 **RTX** (RTL eXpression) — A node in an RTL expression tree. Common RTX codes: `SET`, `PLUS`, `MEM`, `REG`, `CONST_INT`, `IF_THEN_ELSE`. The RTX is the "what"; the [INSN](#insn) is the container.
 
 <a id="sibcall"></a>
-**sibcall** (sibling call / tail call) — Optimization where `call` + `return` is replaced by a single jump when the callee's return value is the caller's return value. On m68k: `jsr func; rts` → `jra func`. See [M68K_OPTIMIZATIONS.md §15](M68K_OPTIMIZATIONS.md#15-sibcall-optimization).
+**sibcall** (sibling call / tail call) — Optimization where `call` + `return` is replaced by a single jump when the callee's return value is the caller's return value. On m68k: `jsr func; rts` → `jra func`. See [M68K_OPTIMIZATIONS.md §7](M68K_OPTIMIZATIONS.md#7-various-smaller-optimizations).
 
 <a id="scc"></a>
 **SCC** (Strongly Connected Component) — A maximal subset of a directed graph where every node is reachable from every other. Used in SSA optimization (value numbering walks SCCs of the SSA graph) and in call graph analysis.
@@ -111,7 +111,7 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 **SCEV** (Scalar Evolution) — Framework that describes how [SSA](#ssa) variables change across loop iterations. Represents IVs as `{initial, +, step}` — e.g. `{0, +, 1}` for a counter starting at 0 incrementing by 1. Used by [IVOPTS](#ivopts) and loop analysis.
 
 <a id="store-merging"></a>
-**store merging** — GIMPLE pass (5.124) that combines adjacent stores to contiguous memory into wider operations. `clr.w (a0); clr.w 2(a0)` → `clr.l (a0)`. Requires stores to be in offset order — see [M68K_OPTIMIZATIONS.md §11](M68K_OPTIMIZATIONS.md#11-memory-access-reordering).
+**store merging** — GIMPLE pass (5.124) that combines adjacent stores to contiguous memory into wider operations. `clr.w (a0); clr.w 2(a0)` → `clr.l (a0)`. Requires stores to be in offset order — see [M68K_OPTIMIZATIONS.md §4](M68K_OPTIMIZATIONS.md#4-memory-access-reordering).
 
 <a id="sra"></a>
 **SRA** (Scalar Replacement of Aggregates) — Replaces struct/array variables with individual scalar variables when the aggregate is only accessed field-by-field. `struct {int a,b} s; s.a=1; s.b=2;` → `int a=1; int b=2;`.

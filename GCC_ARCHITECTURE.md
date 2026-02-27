@@ -173,8 +173,8 @@ Several passes in this phase are critical for understanding the m68k optimizatio
 
 On m68k, VRP is essential for two optimizations:
 
-- **DBRA** ([M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-dbra-loop-optimization)): `dbra` only works with 16-bit counters. VRP proves that a loop counter fits in `[0, 65535]`, enabling the doloop pass to narrow 32-bit `subq.l`+`bne` to `dbra`.
-- **Multiply narrowing** ([M68K_OPTIMIZATIONS.md §6](M68K_OPTIMIZATIONS.md#6-multiplication-optimization)): `muls.w` requires 16-bit operands. VRP proves that both operands fit in `[-32768, 32767]`, enabling `m68k_pass_narrow_index_mult` to replace a 32-bit library call with a single instruction.
+- **DBRA** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): `dbra` only works with 16-bit counters. VRP proves that a loop counter fits in `[0, 65535]`, enabling the doloop pass to narrow 32-bit `subq.l`+`bne` to `dbra`.
+- **Multiply narrowing** ([M68K_OPTIMIZATIONS.md §6](M68K_OPTIMIZATIONS.md#6-1632-bit-optimization)): `muls.w` requires 16-bit operands. VRP proves that both operands fit in `[-32768, 32767]`, enabling `m68k_pass_narrow_index_mult` to replace a 32-bit library call with a single instruction.
 
 **[IVOPTS](GCC_GLOSSARY.md#ivopts)** (pass 5.95, `tree_ssa_iv_optimize()` in `gcc/tree-ssa-loop-ivopts.cc`) selects the best set of [induction variables](GCC_GLOSSARY.md#iv) for each loop. It works in three phases:
 
@@ -184,8 +184,8 @@ On m68k, VRP is essential for two optimizations:
 
 On m68k, two modifications to the cost model are critical:
 
-- **Step cost discount** ([M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-induction-variable-optimization)): When a target supports auto-increment, a pointer IV's step cost (e.g. `addq.l #2,a0`) is discounted to zero because `(a0)+` absorbs the increment for free. Without this, IVOPTS prefers a single integer counter with indexed addressing `(a0,d0.l)` (10 cycles on 68000) over separate pointer IVs with `(a0)+` (4 cycles).
-- **Doloop cost credit** ([M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-dbra-loop-optimization)): IVOPTS may eliminate a loop counter in favor of pointer comparison (`ptr != end`). The `TARGET_DOLOOP_COST_FOR_COMPARE` hook adds a cost penalty for eliminating the counter IV when `dbra` is available, keeping the counter alive.
+- **Step cost discount** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): When a target supports auto-increment, a pointer IV's step cost (e.g. `addq.l #2,a0`) is discounted to zero because `(a0)+` absorbs the increment for free. Without this, IVOPTS prefers a single integer counter with indexed addressing `(a0,d0.l)` (10 cycles on 68000) over separate pointer IVs with `(a0)+` (4 cycles).
+- **Doloop cost credit** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): IVOPTS may eliminate a loop counter in favor of pointer comparison (`ptr != end`). The `TARGET_DOLOOP_COST_FOR_COMPARE` hook adds a cost penalty for eliminating the counter IV when `dbra` is available, keeping the counter alive.
 
 For our fill loop, IVOPTS replaces the integer IV `i` with a pointer IV:
 
@@ -211,9 +211,9 @@ For our fill loop, IVOPTS replaces the integer IV `i` with a pointer IV:
 
 The integer counter is gone — replaced by a pointer that advances through memory. This is exactly what the m68k `(a0)+` addressing mode does for free.
 
-**[Store merging](GCC_GLOSSARY.md#store-merging)** (5.124, `pass_store_merging::execute()` in `gcc/gimple-ssa-store-merging.cc`) combines adjacent stores to memory into wider operations. `clr.w (a0); clr.w 2(a0)` → `clr.l (a0)`. This pass operates on GIMPLE and needs stores to be in offset order — which is why `m68k_pass_reorder_mem` ([M68K_OPTIMIZATIONS.md §11](M68K_OPTIMIZATIONS.md#11-memory-access-reordering)) runs immediately before it.
+**[Store merging](GCC_GLOSSARY.md#store-merging)** (5.124, `pass_store_merging::execute()` in `gcc/gimple-ssa-store-merging.cc`) combines adjacent stores to memory into wider operations. `clr.w (a0); clr.w 2(a0)` → `clr.l (a0)`. This pass operates on GIMPLE and needs stores to be in offset order — which is why `m68k_pass_reorder_mem` ([M68K_OPTIMIZATIONS.md §4](M68K_OPTIMIZATIONS.md#4-memory-access-reordering)) runs immediately before it.
 
-**[Tail calls / sibcalls](GCC_GLOSSARY.md#sibcall)** (5.127, `tree_optimize_tail_calls_1()` in `gcc/tree-tailcall.cc`) replace `call` + `return` with a single jump when the callee's return value is the caller's return value. On m68k: `jsr func; rts` → `jra func`. This saves the call/return overhead and one stack frame. The m68k backend loosens sibcall restrictions under fastcall ABI where arguments are already in registers. See [M68K_OPTIMIZATIONS.md §15](M68K_OPTIMIZATIONS.md#15-sibcall-optimization).
+**[Tail calls / sibcalls](GCC_GLOSSARY.md#sibcall)** (5.127, `tree_optimize_tail_calls_1()` in `gcc/tree-tailcall.cc`) replace `call` + `return` with a single jump when the callee's return value is the caller's return value. On m68k: `jsr func; rts` → `jra func`. This saves the call/return overhead and one stack frame. The m68k backend loosens sibcall restrictions under fastcall ABI where arguments are already in registers. See [M68K_OPTIMIZATIONS.md §7](M68K_OPTIMIZATIONS.md#7-various-smaller-optimizations).
 
 **Key m68k passes at this stage:**
 
@@ -277,7 +277,7 @@ tells GCC that `(set (mem (post_inc reg)) reg)` is a single `move.b` instruction
 (set (mem:QI (post_inc:SI (reg:SI 42))) (reg:QI 44))   ;; move.b d0,(a0)+
 ```
 
-This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass_opt_autoinc` (7.48a) runs after combine/scheduling but *before* IRA, handling multi-step indexed sequences, cross-BB patterns, and increment repositioning on pseudos. Running pre-RA gives IRA POST_INC information so it naturally allocates address registers. A post-RA `m68k_pass_normalize_autoinc` (9.13a) handles only LRA decomposition recovery. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-autoincrement-optimization-pass).
+This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass_opt_autoinc` (7.48a) runs after combine/scheduling but *before* IRA, handling multi-step indexed sequences, cross-BB patterns, and increment repositioning on pseudos. Running pre-RA gives IRA POST_INC information so it naturally allocates address registers. A post-RA `m68k_pass_normalize_autoinc` (9.13a) handles only LRA decomposition recovery. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
 
 **`doloop`** (7.21, `doloop_optimize_loops()` in `gcc/loop-doloop.cc`) transforms counted loops into hardware loop instructions. It recognizes loops with a trip count computable at entry, generates a `doloop_end` pattern that decrements and branches in one instruction, and eliminates the original compare+branch. On m68k, `doloop_end` maps to `dbra`:
 
@@ -302,15 +302,15 @@ This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass
     (plus:HI (reg:HI 50) (const_int -1)))])
 ```
 
-The key constraint: `dbra` operates on 16-bit registers (word decrement, branch on ≥ 0). The pass can only use `dbra` when [VRP](GCC_GLOSSARY.md#vrp) has proven the counter fits in 16 bits. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-dbra-loop-optimization).
+The key constraint: `dbra` operates on 16-bit registers (word decrement, branch on ≥ 0). The pass can only use `dbra` when [VRP](GCC_GLOSSARY.md#vrp) has proven the counter fits in 16 bits. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization).
 
 **Loop unrolling** (7.20, `unroll_loop_runtime_iterations()` in `gcc/loop-unroll.cc`) replicates the loop body N times, reducing branch overhead from once-per-iteration to once-per-N-iterations. For a loop with a runtime trip count, the unroller must handle the *remainder* — the leftover iterations when the count isn't divisible by N.
 
 Stock GCC generates a compare cascade for the remainder: `cmp #1; beq .peel1; cmp #2; beq .peel2; ...` — this costs N-1 branches, each a compare+branch pair. On m68k, `TARGET_PREFER_RUNTIME_UNROLL_TABLEJUMP` replaces this with a jump table: `move.w .tab(pc,d0.w),d0; jmp (pc,d0.w)` — constant-time dispatch regardless of remainder value.
 
-The unroller also controls *IV splitting*: by default, unrolled copies use base+offset addressing (`0(a0)`, `2(a0)`, `4(a0)`...) instead of chaining increments (`(a0)+`, `(a0)+`, `(a0)+`...). On m68k, IV splitting is disabled so that each unrolled copy chains auto-increment naturally. See [M68K_OPTIMIZATIONS.md §10](M68K_OPTIMIZATIONS.md#10-improved-loop-unrolling).
+The unroller also controls *IV splitting*: by default, unrolled copies use base+offset addressing (`0(a0)`, `2(a0)`, `4(a0)`...) instead of chaining increments (`(a0)+`, `(a0)+`, `(a0)+`...). On m68k, IV splitting is disabled so that each unrolled copy chains auto-increment naturally. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization).
 
-**Key m68k pass:** `m68k_pass_avail_copy_elim` (7.29a) — removes redundant copies left over from loop unrolling, before [IRA](GCC_GLOSSARY.md#ira) can see them. See [M68K_OPTIMIZATIONS.md §13](M68K_OPTIMIZATIONS.md#13-available-copy-elimination).
+**Key m68k pass:** `m68k_pass_avail_copy_elim` (7.29a) — removes redundant copies left over from loop unrolling, before [IRA](GCC_GLOSSARY.md#ira) can see them. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
 
 **Files:** `gcc/cse.cc`, `gcc/combine.cc`, `gcc/auto-inc-dec.cc` (inc_dec), `gcc/loop-doloop.cc` (doloop), `gcc/loop-unroll.cc` (unrolling)
 
@@ -336,7 +336,7 @@ This is the hardest constraint in the entire pipeline. Every optimization before
 
 Register 42 → `a0` (address register, because it's used as a memory base), register 44 → `d0` (data register, because it holds a byte value).
 
-**m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
+**m68k constraint:** Only address registers (`a0`–`a6`) can be used as base registers in memory operands. IRA must respect this — a pointer in `d3` would require an extra `move.l d3,a0` before every memory access. The `m68k_ira_change_pseudo_allocno_class` hook promotes pointer pseudos to `ADDR_REGS` to avoid this. See [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation).
 
 #### IRA → LRA / Reload
 
@@ -360,13 +360,13 @@ m68k was never switched to LRA — the backend has been in maintenance mode with
 
 **Tablejump UNSPEC patterns**: The `casesi` switch dispatch uses `(d8,PC,Xn)` addressing to load from a jump table. Reload accepts a data register as the index (`Xn`), but LRA insists on an address register because it sees the index inside an address expression. Since the jump table index is naturally computed in a data register, LRA would insert a `move.l dN,aN` copy. The fix wraps the table load in `UNSPEC_TABLEJUMP_LOAD` — hiding the addressing mode from LRA. The output template emits the correct `move.w (label,pc,%dN.w),%dN` assembly directly. This avoids the constraint conflict entirely.
 
-**LEA indexed displacement overflow**: After LRA eliminates the frame pointer (`vfp → sp + frame_size`), indexed displacements can exceed the 8-bit signed limit of `(d8,An,Xn)` on 68000 and ColdFire. Two `define_insn_and_split` patterns (`*lea_indexed_disp_scaled`, `*lea_indexed_disp`) use register/const constraints instead of `"p"`, giving LRA satisfiable constraints. When the displacement fits in 8 bits, a single LEA is emitted; when it doesn't, a post-reload split decomposes it into two instructions. See [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator).
+**LEA indexed displacement overflow**: After LRA eliminates the frame pointer (`vfp → sp + frame_size`), indexed displacements can exceed the 8-bit signed limit of `(d8,An,Xn)` on 68000 and ColdFire. Two `define_insn_and_split` patterns (`*lea_indexed_disp_scaled`, `*lea_indexed_disp`) use register/const constraints instead of `"p"`, giving LRA satisfiable constraints. When the displacement fits in 8 bits, a single LEA is emitted; when it doesn't, a post-reload split decomposes it into two instructions. See [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation).
 
 **Result:** Fire Flight binary reduced by 1126 bytes (1.6%). For simple functions LRA and reload produce equivalent code; LRA wins on complex register-pressure scenarios where its iterative approach finds solutions that reload's single pass cannot.
 
-**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` (LRA — m68k default), `gcc/reload.cc` (legacy reload — `-mno-lra`), `gcc/ira-costs.cc` (cost computation), `gcc/config/m68k/m68k-rtl-passes.cc` (canon scaled index pass)
+**Files:** `gcc/ira.cc` (IRA), `gcc/lra.cc` (LRA — m68k default), `gcc/reload.cc` (legacy reload — `-mno-lra`), `gcc/ira-costs.cc` (cost computation), `gcc/config/m68k/m68k-pass-regalloc.cc` (canon scaled index pass)
 
-**Cross-ref:** [Foundation Passes: IRA](#6-ira-register-allocation), [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator)
+**Cross-ref:** [Foundation Passes: IRA](#6-ira-register-allocation), [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation)
 
 ### 8. Post-RA Optimization
 
@@ -397,7 +397,7 @@ m68k was never switched to LRA — the backend has been in maintenance mode with
   move.w  #2,(a0)+
 ```
 
-**Files:** `gcc/cprop.cc` (cprop_hardreg), `gcc/recog.cc` (peephole2), `gcc/config/m68k/m68k-rtl-passes.cc` (m68k passes)
+**Files:** `gcc/cprop.cc` (cprop_hardreg), `gcc/recog.cc` (peephole2), `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/config/m68k/m68k-pass-shortopt.cc`, `gcc/config/m68k/m68k-pass-miscopt.cc` (m68k passes)
 
 ### 9. Final Assembly
 
@@ -460,7 +460,7 @@ These passes underpin the entire optimization pipeline. Understanding them is es
 ;; (because move.w (a0),d0 becomes (a0)+ which is only 8 cycles total)
 ```
 
-**Why TARGET_INSN_COST was added:** GCC's default `TARGET_RTX_COSTS` only costs the *source* side of `(set dst src)`. The destination is costed separately, and for memory destinations GCC assumes a fixed cost. On m68k, `move.l d0,(a0)` costs 12 cycles total, not 4 — without `TARGET_INSN_COST`, stores look as cheap as register moves, causing combine to fold values into memory operands unnecessarily. `TARGET_INSN_COST` sees the full `(set dst src)` pattern and can cost destination memory accesses accurately, including detecting non-RMW compound-to-memory patterns that require copy+op+store (3 insns). See [M68K_OPTIMIZATIONS.md §1](M68K_OPTIMIZATIONS.md#1-rtx-and-address-cost-calculations).
+**Why TARGET_INSN_COST was added:** GCC's default `TARGET_RTX_COSTS` only costs the *source* side of `(set dst src)`. The destination is costed separately, and for memory destinations GCC assumes a fixed cost. On m68k, `move.l d0,(a0)` costs 12 cycles total, not 4 — without `TARGET_INSN_COST`, stores look as cheap as register moves, causing combine to fold values into memory operands unnecessarily. `TARGET_INSN_COST` sees the full `(set dst src)` pattern and can cost destination memory accesses accurately, including detecting non-RMW compound-to-memory patterns that require copy+op+store (3 insns). See [M68K_OPTIMIZATIONS.md §1](M68K_OPTIMIZATIONS.md#1-cost-model).
 
 **Files:** `gcc/config/m68k/m68k_costs.cc` (`m68k_rtx_costs_impl()`, `m68k_insn_cost_impl()`, `m68k_address_cost_impl()`), `gcc/config/m68k/m68k.cc` (cost hooks)
 
@@ -550,7 +550,7 @@ BB2:
 | Liveness | Backward | "Is reg X used on any path from here to the function exit?" |
 | Use-def chains | — | "Which insn defined the value in reg X that this insn uses?" |
 
-**m68k gotcha:** When modifying insns in a pass where DF is active, you **must** call `df_insn_rescan(insn)` after each modification. Failing to do so leaves stale DF references that cause use-after-free crashes in later passes (e.g., `sched2`'s `df_note_compute`). `SET_INSN_DELETED` does *not* notify DF — use `delete_insn()` instead. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-autoincrement-optimization-pass) for a real example of this bug.
+**m68k gotcha:** When modifying insns in a pass where DF is active, you **must** call `df_insn_rescan(insn)` after each modification. Failing to do so leaves stale DF references that cause use-after-free crashes in later passes (e.g., `sched2`'s `df_note_compute`). `SET_INSN_DELETED` does *not* notify DF — use `delete_insn()` instead. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization) for a real example of this bug.
 
 **Files:** `gcc/df-core.cc`, `gcc/df-scan.cc`, `gcc/df-problems.cc`
 
@@ -604,7 +604,7 @@ IRA's allocator works in two phases:
 1. **Coloring:** Assign registers using graph coloring (`color()` in `gcc/ira-color.cc`). Pseudo-registers that interfere (are live at the same time) get different colors (physical registers).
 2. **Spilling:** When coloring fails (not enough registers), pick the least-costly pseudo to spill to memory (`assign_hard_reg()` in `gcc/ira-color.cc`).
 
-**m68k hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS` promotes pseudos used as memory bases from `DATA_REGS` to `ADDR_REGS`, avoiding costly data→address register moves. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves (cost 3 vs default 2), because values in address registers lose CC flag visibility — guiding IRA to prefer data registers for arithmetic. See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements).
+**m68k hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS` promotes pseudos used as memory bases from `DATA_REGS` to `ADDR_REGS`, avoiding costly data→address register moves. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves (cost 3 vs default 2), because values in address registers lose CC flag visibility — guiding IRA to prefer data registers for arithmetic. See [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation).
 
 **Files:** `gcc/ira.cc`, `gcc/ira-color.cc`, `gcc/ira-lives.cc`, `gcc/lra.cc` ([LRA](GCC_GLOSSARY.md#lra) — m68k default), `gcc/reload.cc` (legacy — `-mno-lra`)
 
@@ -633,7 +633,7 @@ PRE detects that `x + y` is *partially* redundant (available on the back edge, n
 
 **FRE** is simpler and cheaper — it runs multiple times (passes 2.25, 5.23, 5.91, 5.109) because earlier optimizations create new redundancies. PRE runs once (5.56) as a loop optimization.
 
-**PRE and edge splitting:** PRE sometimes needs to insert computations on CFG edges that don't have a block. It does this by *splitting* the edge — inserting a new empty BB on the edge and placing the computation there. Normally this is harmless, but for self-loop edges (a BB that branches back to itself), splitting creates a new latch BB that adds a jump per iteration and breaks auto-increment patterns. On m68k, `--param=pre-no-self-loop-insert=1` suppresses this, keeping tight loops in a single BB where `(a0)+` addressing works naturally. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-autoincrement-optimization-pass).
+**PRE and edge splitting:** PRE sometimes needs to insert computations on CFG edges that don't have a block. It does this by *splitting* the edge — inserting a new empty BB on the edge and placing the computation there. Normally this is harmless, but for self-loop edges (a BB that branches back to itself), splitting creates a new latch BB that adds a jump per iteration and breaks auto-increment patterns. On m68k, `--param=pre-no-self-loop-insert=1` suppresses this, keeping tight loops in a single BB where `(a0)+` addressing works naturally. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
 
 **Files:** `gcc/tree-ssa-pre.cc` (PRE), `gcc/tree-ssa-sccvn.cc` (value numbering used by FRE/PRE), `gcc/gcse.cc` (RTL PRE, self-loop suppression)
 

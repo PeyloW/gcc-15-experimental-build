@@ -402,7 +402,7 @@ If either produces a simpler result, it's used.
 
 **Pass:** `m68k_pass_canon_scaled_index` (7.29b)
 
-**Code:** `gcc/config/m68k/m68k-rtl-passes.cc` lines 4328–4507
+**Code:** `gcc/config/m68k/m68k-pass-regalloc.cc`
 
 ### The problem
 
@@ -433,4 +433,4 @@ The ASHIFT wrapper makes the index explicit. Address decomposition classifies it
 
 The canon pass only processes MEM sub-expressions. It does not affect non-address uses of the 3-register form.
 
-**Source:** `gcc/config/m68k/m68k-rtl-passes.cc` lines 4328–4507; see also [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator)
+**Source:** `gcc/config/m68k/m68k-pass-regalloc.cc`; see also [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation)

@@ -1,6 +1,6 @@
 ---
 user-invocable: false
-description: Loaded when debugging or writing GIMPLE passes in the m68k backend (m68k-gimple-passes.cc).
+description: Loaded when debugging or writing GIMPLE passes in the m68k backend (m68k-pass-autoinc.cc, m68k-pass-shortopt.cc, m68k-pass-memreorder.cc).
 ---
 
 # GIMPLE Pass Debugging
@@ -13,7 +13,7 @@ description: Loaded when debugging or writing GIMPLE passes in the m68k backend 
 | `m68k_pass_autoinc_split` | 5.95a | Re-split combined pointer increments for `(a0)+` |
 | `m68k_pass_reorder_mem` | 5.123a | Reorder struct accesses by offset for store merging |
 
-Source: `gcc/config/m68k/m68k-gimple-passes.cc`
+Source: `gcc/config/m68k/m68k-pass-shortopt.cc` (narrow_index_mult), `gcc/config/m68k/m68k-pass-autoinc.cc` (autoinc_split), `gcc/config/m68k/m68k-pass-memreorder.cc` (reorder_mem)
 
 ## GIMPLE Dump Flags
 

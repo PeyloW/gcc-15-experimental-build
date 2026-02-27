@@ -495,6 +495,22 @@ rm -f build-host/gcc/s-peep build-host/gcc/s-tmp-recog build-host/gcc/s-tmp-emit
 ./build-gcc.sh -sjlj build
 ```
 
+### ColdFire register class restrictions
+
+**Rule:** Don't promote pseudos to ADDR_REGS on ColdFire. Gate all ADDR_REGS promotion paths with `!TARGET_COLDFIRE`.
+
+**Why:** ColdFire's restricted addressing modes (no `(d16,An)` with address register index) create unsatisfiable allocation constraints when too many pseudos are forced into ADDR_REGS.
+
+**Violation symptom:** Infinite loop in `et_splay()` during `pass_reorder_blocks` — LRA corrupts the dominator tree's ET forest data structure trying to resolve the conflicting constraints.
+
+### Alias safety in GIMPLE reordering
+
+**Rule:** When reordering stores in a GIMPLE pass, check both source and destination operands for aliasing with intervening statements.
+
+**Why:** A store with a memory source (e.g., `*dst = *src`) depends on the source value. Checking only whether intervening statements clobber the store's destination misses the case where an intervening write initializes the source.
+
+**Violation symptom:** Silent miscompilation — the store reads a stale or uninitialized value because it was moved before the write that sets up its source operand.
+
 ---
 
 ## 6. Debugging Register Allocation (IRA)
@@ -610,7 +626,7 @@ A pointer pseudo assigned to DATA_REGS forces `move.l dN,aM` copies before every
 3. Check if ADDR_REGS cost is higher than DATA_REGS cost — if so, IRA made the optimal choice given its information, and the fix is in the cost model or the `m68k_ira_change_pseudo_allocno_class` hook
 4. Check if the hook promoted the pseudo — search for the pseudo number in the hook's debug output (enabled with `-fdump-rtl-ira`)
 
-See [M68K_OPTIMIZATIONS.md §9](M68K_OPTIMIZATIONS.md#9-ira-register-allocation-improvements) for the IRA promotion hook.
+See [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation) for the IRA promotion hook.
 
 ---
 
@@ -691,7 +707,7 @@ New elimination table:
     Using elimination 64 to 15 now      [virtual frame pointer -> stack pointer]
 ```
 
-Frame pointer elimination: virtual registers (like the frame pointer, register 64) are replaced by `sp + offset`. On m68k, this is where indexed displacements can exceed the 8-bit limit on 68000/ColdFire — the LEA ICE fix ([M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator)) handles this case.
+Frame pointer elimination: virtual registers (like the frame pointer, register 64) are replaced by `sp + offset`. On m68k, this is where indexed displacements can exceed the 8-bit limit on 68000/ColdFire — the LEA ICE fix ([M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation)) handles this case.
 
 ### Old reload dump structure
 
@@ -751,6 +767,6 @@ When switching from `-mno-lra` to `-mlra` causes a code quality regression:
 4. Compare the `*.reload` dumps — look for different alternative choices (`Choosing alt N`) or different spill decisions
 5. Common causes on m68k:
    - LRA chose a different instruction alternative that requires a register copy (fix: reorder alternatives in `m68k.md`)
-   - LRA's constraint iteration couldn't satisfy a `"p"` (address) constraint after frame pointer elimination (fix: use explicit register/const constraints — see the LEA ICE fix in [M68K_OPTIMIZATIONS.md §16](M68K_OPTIMIZATIONS.md#16-lra-register-allocator))
+   - LRA's constraint iteration couldn't satisfy a `"p"` (address) constraint after frame pointer elimination (fix: use explicit register/const constraints — see the LEA ICE fix in [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation))
    - LRA's inheritance inserted cross-BB copies that reload didn't need (usually acceptable — LRA's overall result is still better)
 

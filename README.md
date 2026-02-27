@@ -40,7 +40,7 @@ m68k-atari-mint-gcc/          # git clone of the repository
 Clone and build:
 
 ```bash
-git clone -b mint/gcc-15-experimental https://github.com/th-otto/m68k-atari-mint-gcc.git
+git clone -b mint/gcc-15-experimental-v2 https://github.com/th-otto/m68k-atari-mint-gcc.git
 cd m68k-atari-mint-gcc
 git clone git@github.com:PeyloW/gcc-15-experimental-build.git build
 cd build
