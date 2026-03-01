@@ -30,7 +30,7 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 **DCE** (Dead Code Elimination) — Removes instructions whose results are never used. Runs multiple times at GIMPLE level (e.g. 5.47, 5.62) and at RTL (7.31, 9.19).
 
 <a id="doloop"></a>
-**doloop** — RTL pass (7.21) that converts counted loops into hardware loop instructions. On m68k, maps to `dbra` (decrement-and-branch). Requires [VRP](#vrp) to prove the counter fits in 16 bits. See [Chapter 2 §6](GCC_ARCHITECTURE.md#6-rtl-optimization-pre-ra).
+**doloop** — RTL pass (7.21) that converts counted loops into hardware loop instructions. On m68k, maps to `dbra` (decrement-and-branch). Requires [VRP](#vrp) to prove the iteration count fits in 16 bits. A preferred-mode fallback tries `TARGET_PREFERRED_DOLOOP_MODE` (HImode) when the loop IV is wider. See [Chapter 2 §6](GCC_ARCHITECTURE.md#6-rtl-optimization-pre-ra).
 
 <a id="df"></a>
 **DF** (Dataflow Framework) — GCC's infrastructure for computing liveness, reaching definitions, and def-use chains over RTL. See [Foundation Passes: DF](GCC_ARCHITECTURE.md#4-dataflow-analysis-df).

@@ -60,15 +60,12 @@ extern "C" {
     }
     
     /* test_dbra_matching_counter - dbra loop with matching counter types
+     * The loop IV is SImode (long) but bounded by an unsigned short count.
+     * GCC's doloop pass uses the preferred doloop mode (HImode) fallback
+     * to emit dbra when the iteration count fits in 16 bits.
      * Optimizations:
-     *   - Loop to dbra conversion: Converts pointer-compare loop to dbra instruction
+     *   - Loop to dbra conversion: RTL doloop pass with HImode preferred mode
      *   - Post-increment addressing: move.w (%a0)+,(%a1)+ for both src and dst
-     * Observed: Saves 5 instructions by replacing and.l/add.l/add.l/cmp.l/jne
-     *   sequence with single dbra instruction.
-     * Responsible: m68k_reorg() doloop pattern matching, m68k_reorg_postinc()
-     * Savings at -O2: ~38 cycles/iteration (and.l=20 + 2x add.l=12 + cmp.l=6 vs
-     *   dbra=10), 8 bytes static (16 bytes setup vs 8 bytes with dbra)
-     * Savings at -Os: ~18 cycles/iteration (indexed vs dbra+postinc), 10 bytes static
      */
     void test_dbra_matching_counter(const short* src, short* dst, unsigned short count) {
         for (long i = 0; i < count; i++) {
@@ -152,7 +149,9 @@ extern "C" {
      *   - Read without post-increment: move.w (%a2),%d0 preserves pointer for write
      * Observed: Saves 1 instruction; post-increment applied to write not read,
      *   avoiding negative offset addressing after premature increment.
-     * Responsible: m68k_reorg_postinc() write-preferring heuristics
+     * Responsible: IVOPTS -fivopts-autoinc-multiuse generates auto-increment
+     *   candidates for all uses in multi-use address groups, letting the cost
+     *   model place post-increment on the write instead of the read.
      * Savings at -O2: ~10 cycles/iteration (move.w d(an)=12 + addq=8 + cmp=6 vs
      *   move.w (an)+=8 + subq=8), 4 bytes static
      * Savings at -Os: ~10 cycles/iteration (similar pattern), 4 bytes static

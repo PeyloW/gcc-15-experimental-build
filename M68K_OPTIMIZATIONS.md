@@ -214,17 +214,47 @@ move.l  (a0)+,(a1)+
 - `test_multiple_postinc()` — multiple pointer IVs in one loop
 - `test_multiple_postinc_short()` — short pointer increments
 - `test_matrix_mul()` — nested loop IV selection
+- `test_postinc_write()` — POST_INC placed on write instead of read
+
+
+### Auto-Increment Multi-Use Candidate Generation
+
+When a loop reads and writes through the same pointer (a multi-use address group), IVOPTS normally generates auto-increment candidates only for the first use. The placement of POST_INC then depends on internal use ordering, which varies between `-O2` (rotated loop) and `-Os`. With `-fivopts-autoinc-multiuse`, candidates are generated for the last use too. The cost model correctly costs non-ainc uses with displacement addressing, choosing the better placement — typically POST_INC on the write, since the read can use plain `(aN)` at zero cost.
+
+Disable with: `-fno-ivopts-autoinc-multiuse`
+
+**Pass:** `ivopts` (modified)
+
+**Code:** `gcc/tree-ssa-loop-ivopts.cc`, `gcc/config/m68k/m68k.cc`
+
+```c
+void test_postinc_write(short *dst, unsigned int count, int (*p)(short)) {
+    for (unsigned int i = 0; i < count; i++)
+        dst[i] = p(dst[i]) ? i : 0;
+}
+```
+```asm
+; Before: POST_INC on read, negative offset for write
+move.w  (%a2)+,%d0          ; read with POST_INC
+...
+move.w  %d0,-2(%a2)         ; write needs negative offset
+
+; After (-fivopts-autoinc-multiuse): POST_INC on write
+move.w  (%a2),%d0           ; read with plain addressing
+...
+move.w  %d0,(%a2)+          ; write with POST_INC
+```
 
 
 ### DBRA Loop Optimization
 
-Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propagation determines if the counter fits in 16 bits; when safe, 32-bit counters are narrowed to 16-bit to enable `dbra`.
+Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propagation determines if the iteration count fits in 16 bits; when safe, the doloop pass narrows the counter to HImode to enable `dbra`. A preferred-mode fallback in `loop-doloop.cc` handles the common case where the loop IV is SImode (e.g. `long i`) but bounded by a 16-bit value: the pass tries `TARGET_PREFERRED_DOLOOP_MODE` (HImode) when the standard `word_mode` fallback fails. `TARGET_DOLOOP_MIN_ITERATIONS` (set to 1) ensures `dbra` is used even for small trip counts.
 
 IVOPTS can transform count-down loops into pointer-comparison loops, preventing `dbra`. A new `TARGET_DOLOOP_COST_FOR_COMPARE` hook credits `dbra` in the IVOPTS cost model, keeping the counter IV for `dbra` over pointer comparison. For dynamic counts, `__builtin_assume()` can provide the range information needed.
 
 Disable with: `-mno-m68k-doloop`
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/loop-doloop.cc`
 
 ### Examples
 
@@ -261,7 +291,7 @@ dbra    d2,.loop
 ### Test cases
 
 - `test_dbra_const_count()` — constant 50 iterations → `moveq #49` + `dbra`
-- `test_dbra_matching_counter()` — matching counter types enable `dbra`
+- `test_dbra_matching_counter()` — SImode IV with `unsigned short` bound → preferred-mode fallback enables `dbra`
 - `test_dbra_mixed_counter()` — mixed sizes prevent `dbra` (negative test)
 - `test_doloop_const_small()` — small constant (100) → `dbra`
 - `test_doloop_himode()` — `unsigned short` counter with `__builtin_unreachable` bound
@@ -398,11 +428,15 @@ Post-increment addressing (`(a0)+`) saves both an instruction and cycles by fold
 
 Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=pre-no-self-loop-insert=1`) to keep tight loops in a single BB where auto-increment works naturally.
 
+Two `define_peephole2` patterns recover POST_INC on read-modify-write instructions when `auto_inc_dec` cannot — the address register appears twice in RMW, preventing standard auto-increment detection. Pattern: `OP.x Dn,(An)` + `addq #size,An` → `OP.x Dn,(An)+`.
+
 **Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
+
+**Patterns:** RMW+POST_INC recovery (`define_peephole2`)
 
 Disable with: `-mno-m68k-autoinc`
 
-**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/gcse.cc`
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/gcse.cc`, `gcc/config/m68k/m68k.md`
 
 ### Examples
 
@@ -434,6 +468,7 @@ Disable with: `-mno-m68k-autoinc`
 - `test_mintlib_strcmp()`, `test_libcmini_strcmp()` — real-world cross-BB patterns
 - `test_mintlib_strcpy()`, `test_libcmini_strcpy()` — string copy patterns
 - `test_mintlib_strlen()`, `test_libcmini_strlen()` — string length patterns
+- `test_matrix_add()` — RMW+POST_INC recovery via peephole2
 
 
 ### Available Copy Elimination
@@ -837,7 +872,7 @@ When `int` is 32 bits, GCC generates up-counting loops with three loop-control i
 
 ### B.4 Read-Modify-Write with Auto-Increment (RESOLVED)
 
-Resolved in §7 point 4 (`c3ff97bed99`). Added `define_insn` and `define_peephole2` patterns for `add/sub/and/or/eor.x dN,(aN)+`.
+Resolved in §7 Merge Peepholes (`5713692f644`) and §5 Autoincrement (`9daff73b8e0`). Added `define_insn` and `define_peephole2` patterns for `add/sub/and/or/eor.x dN,(aN)+`.
 
 ### B.5 16-bit Register Spills
 

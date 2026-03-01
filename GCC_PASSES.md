@@ -393,7 +393,7 @@ Main optimization pipeline run on each function.
 | 7.18 | `pass_rtl_loop_init` | RTL | Initialize RTL loops | `pass_rtl_loop_done` | Set up loop structures |
 | 7.19 | `pass_rtl_move_loop_invariants` | RTL | Move loop invariants | - | RTL-level LIM |
 | 7.20 | `pass_rtl_unroll_loops` | RTL | Loop unrolling | - | Unroll loops in RTL |
-| 7.21 | `pass_rtl_doloop` | RTL | **Doloop optimization** | - | **`subq #1,dn; bne` → `dbra dn`** (m68k!) |
+| 7.21 | `pass_rtl_doloop` | RTL | **Doloop optimization** | - | **`subq #1,dn; bne` → `dbra dn`** (m68k!). Preferred-mode fallback tries HImode for SImode IVs with 16-bit bounds. |
 | 7.22 | `pass_rtl_loop_done` | RTL | Finalize RTL loops | - | Clean up loop data |
 
 ### Pre-RA RTL Optimization (continued)

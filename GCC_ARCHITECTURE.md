@@ -186,6 +186,7 @@ On m68k, two modifications to the cost model are critical:
 
 - **Step cost discount** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): When a target supports auto-increment, a pointer IV's step cost (e.g. `addq.l #2,a0`) is discounted to zero because `(a0)+` absorbs the increment for free. Without this, IVOPTS prefers a single integer counter with indexed addressing `(a0,d0.l)` (10 cycles on 68000) over separate pointer IVs with `(a0)+` (4 cycles).
 - **Doloop cost credit** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): IVOPTS may eliminate a loop counter in favor of pointer comparison (`ptr != end`). The `TARGET_DOLOOP_COST_FOR_COMPARE` hook adds a cost penalty for eliminating the counter IV when `dbra` is available, keeping the counter alive.
+- **Multi-use candidate generation** ([M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization)): When an address group has both reads and writes, generates auto-increment candidates for both first and last use so the cost model can choose optimal placement. Without this, placement depends on internal use ordering which varies between `-O2` (rotated loop) and `-Os`.
 
 For our fill loop, IVOPTS replaces the integer IV `i` with a pointer IV:
 
@@ -302,7 +303,7 @@ This is the standard GCC pass for auto-increment. On m68k, the custom `m68k_pass
     (plus:HI (reg:HI 50) (const_int -1)))])
 ```
 
-The key constraint: `dbra` operates on 16-bit registers (word decrement, branch on ≥ 0). The pass can only use `dbra` when [VRP](GCC_GLOSSARY.md#vrp) has proven the counter fits in 16 bits. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization).
+The key constraint: `dbra` operates on 16-bit registers (word decrement, branch on ≥ 0). The pass uses `dbra` when [VRP](GCC_GLOSSARY.md#vrp) has proven the iteration count fits in 16 bits. When the loop IV is wider than HImode (e.g. SImode), a preferred-mode fallback tries `TARGET_PREFERRED_DOLOOP_MODE` (HImode on m68k) and narrows the counter via `lowpart_subreg`. See [M68K_OPTIMIZATIONS.md §3](M68K_OPTIMIZATIONS.md#3-loop-optimization).
 
 **Loop unrolling** (7.20, `unroll_loop_runtime_iterations()` in `gcc/loop-unroll.cc`) replicates the loop body N times, reducing branch overhead from once-per-iteration to once-per-N-iterations. For a loop with a runtime trip count, the unroller must handle the *remainder* — the leftover iterations when the count isn't divisible by N.
 
