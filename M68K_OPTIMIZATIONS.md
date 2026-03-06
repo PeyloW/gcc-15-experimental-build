@@ -366,11 +366,13 @@ while (count--) {
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses share a common base pointer. Verifies reordering safety using GCC's alias oracle. Runs before store-merging at `-O1` and above (including `-Os`).
 
-**Pass:** `m68k-reorder-mem` (new GIMPLE pass)
+A pre-RA increment normalization pass (`m68k-reorder-incr`) moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. This enables sequential access patterns for downstream auto-increment conversion. Runs after scheduling, before IRA.
 
-Disable with: `-mno-m68k-reorder-mem`
+**Passes:** `m68k-reorder-mem` (new GIMPLE pass), `m68k-reorder-incr` (new pre-RA RTL pass)
 
-**Code:** `gcc/config/m68k/m68k-pass-memreorder.cc`
+Disable with: `-mno-m68k-reorder-mem` (reorder), `-mno-m68k-autoinc` (increment normalization)
+
+**Code:** `gcc/config/m68k/m68k-pass-memreorder.cc`, `gcc/config/m68k/m68k-util.cc`
 
 ### Examples
 
@@ -426,7 +428,7 @@ Post-increment addressing (`(a0)+`) saves both an instruction and cycles by fold
 
 ### Autoincrement Pass
 
-Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=pre-no-self-loop-insert=1`) to keep tight loops in a single BB where auto-increment works naturally.
+Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=gcse-no-selfloop-split=1`) to keep tight loops in a single BB where auto-increment works naturally.
 
 Two `define_peephole2` patterns recover POST_INC on read-modify-write instructions when `auto_inc_dec` cannot — the address register appears twice in RMW, preventing standard auto-increment detection. Pattern: `OP.x Dn,(An)` + `addq #size,An` → `OP.x Dn,(An)+`.
 
@@ -436,7 +438,7 @@ Two `define_peephole2` patterns recover POST_INC on read-modify-write instructio
 
 Disable with: `-mno-m68k-autoinc`
 
-**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/gcse.cc`, `gcc/config/m68k/m68k.md`
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/config/m68k/m68k-util.cc`, `gcc/gcse.cc`, `gcc/config/m68k/m68k.md`
 
 ### Examples
 

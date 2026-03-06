@@ -634,7 +634,7 @@ PRE detects that `x + y` is *partially* redundant (available on the back edge, n
 
 **FRE** is simpler and cheaper — it runs multiple times (passes 2.25, 5.23, 5.91, 5.109) because earlier optimizations create new redundancies. PRE runs once (5.56) as a loop optimization.
 
-**PRE and edge splitting:** PRE sometimes needs to insert computations on CFG edges that don't have a block. It does this by *splitting* the edge — inserting a new empty BB on the edge and placing the computation there. Normally this is harmless, but for self-loop edges (a BB that branches back to itself), splitting creates a new latch BB that adds a jump per iteration and breaks auto-increment patterns. On m68k, `--param=pre-no-self-loop-insert=1` suppresses this, keeping tight loops in a single BB where `(a0)+` addressing works naturally. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
+**PRE and edge splitting:** PRE sometimes needs to insert computations on CFG edges that don't have a block. It does this by *splitting* the edge — inserting a new empty BB on the edge and placing the computation there. Normally this is harmless, but for self-loop edges (a BB that branches back to itself), splitting creates a new latch BB that adds a jump per iteration and breaks auto-increment patterns. On m68k, `--param=gcse-no-selfloop-split=1` suppresses this, keeping tight loops in a single BB where `(a0)+` addressing works naturally. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
 
 **Files:** `gcc/tree-ssa-pre.cc` (PRE), `gcc/tree-ssa-sccvn.cc` (value numbering used by FRE/PRE), `gcc/gcse.cc` (RTL PRE, self-loop suppression)
 

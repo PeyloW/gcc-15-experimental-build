@@ -428,6 +428,7 @@ Main optimization pipeline run on each function.
 | 7.46 | `pass_live_range_shrinkage` | RTL | Shrink live ranges | - | Reduce register pressure |
 | 7.47 | `pass_sched` | RTL | Instruction scheduling 1 | `pass_sched2` | Pre-RA scheduling |
 | 7.48a | **`m68k_pass_opt_autoinc`** | RTL | **Pre-RA auto-increment** | m68k | **Multi-step, cross-BB, reposition on pseudos** |
+| 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization** | m68k | **Move increments past negative-offset accesses** |
 | 7.48 | `pass_rtl_avoid_store_forwarding` | RTL | Avoid store forwarding | - | Prevent store-to-load |
 | 7.49 | `pass_early_remat` | RTL | Early rematerialization | - | Recompute vs reload |
 
@@ -592,6 +593,27 @@ muls.w  #320,d0
   move.l (pseudo)+,d1
 ```
 
+#### `m68k_pass_reorder_incr`
+
+**Location**: After `m68k_pass_opt_autoinc` (7.48a) in Phase 7
+**Source**: `gcc/config/m68k/m68k-pass-memreorder.cc`, `gcc/config/m68k/m68k-util.cc`
+
+**Purpose**: Pre-RA increment normalization. Moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. This enables sequential access patterns for downstream auto-increment conversion. Runs after scheduling, before IRA.
+
+**Transformation Example**:
+
+```asm
+; Before (negative offsets prevent autoinc):
+  addq.l #4,pseudo
+  move.l -4(pseudo),d0
+  move.l (pseudo),d1
+
+; After (positive sequential offsets):
+  move.l (pseudo),d0
+  move.l 4(pseudo),d1
+  addq.l #8,pseudo
+```
+
 #### `m68k_pass_normalize_autoinc`
 
 **Location**: Before `pass_peephole2` (9.14) in Phase 9
@@ -672,6 +694,7 @@ muls.w  #320,d0
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
 | `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
 | `m68k_pass_opt_autoinc` (7.48a) | Pre-RA auto-increment | Multi-step, cross-BB, reposition on pseudos |
+| `m68k_pass_reorder_incr` (7.48b) | Pre-RA increment normalization | Move increments past negative-offset accesses |
 | `m68k_pass_normalize_autoinc` (9.13a) | LRA decomposition recovery | Reconstruct LRA-decomposed POST_INC |
 | `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |

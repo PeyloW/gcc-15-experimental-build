@@ -18,8 +18,6 @@ Register allocation improvements: LRA as default allocator and better IRA regist
 
 Switched m68k to LRA (Local Register Allocator) as default, replacing legacy reload. Fire Flight binary reduced by 1126 bytes (1.6%). Added `m68k_pass_canon_scaled_index` to rewrite 3-register scaled index addresses for LRA, `UNSPEC_TABLEJUMP_LOAD` to avoid constraint conflicts in casesi, and tightened mulhi3 constraints.
 
-Fixed an ICE on 68000/ColdFire where indexed `(d8,An,Xn)` displacement exceeds 8-bit limit after fp elimination. Two `define_insn_and_split` patterns emit a single LEA when in range, or split into two instructions post-reload.
-
 Disable with: `-mno-lra`
 
 **Pass:** `m68k-canon-scaled-index` (new RTL pass)
@@ -76,13 +74,13 @@ Disable with: `-mno-m68k-doloop`
 
 ## 4. Memory Access Reordering
 
-Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses (e.g. unrolled copies to hardware registers) share a common base pointer, enabling full post-increment merge. Runs at `-O1` and above (including `-Os`).
+Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses share a common base pointer. Runs at `-O1` and above (including `-Os`).
 
 Disable with: `-mno-m68k-reorder-mem`
 
-**Pass:** `m68k-reorder-mem` (new GIMPLE pass)
+**Passes:** `m68k-reorder-mem` (new GIMPLE pass), `m68k-reorder-incr` (new pre-RA RTL pass)
 
-**Code:** `gcc/config/m68k/m68k-pass-memreorder.cc`
+**Code:** `gcc/config/m68k/m68k-pass-memreorder.cc`, `gcc/config/m68k/m68k-util.cc`
 
 ## 5. Autoincrement Optimization
 
