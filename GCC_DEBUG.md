@@ -11,6 +11,7 @@ Practical guide for diagnosing regressions, miscompilations, and ICEs when worki
 5. [Common Pitfalls in Custom Passes](#5-common-pitfalls-in-custom-passes)
 6. [Debugging Register Allocation (IRA)](#6-debugging-register-allocation-ira)
 7. [Debugging LRA and Reload](#7-debugging-lra-and-reload)
+8. [Debugging Regrename](#8-debugging-regrename)
 
 ---
 
@@ -770,4 +771,76 @@ When switching from `-mno-lra` to `-mlra` causes a code quality regression:
    - LRA chose a different instruction alternative that requires a register copy (fix: reorder alternatives in `m68k.md`)
    - LRA's constraint iteration couldn't satisfy a `"p"` (address) constraint after frame pointer elimination (fix: use explicit register/const constraints — see the LEA ICE fix in [M68K_OPTIMIZATIONS.md §2](M68K_OPTIMIZATIONS.md#2-register-allocation))
    - LRA's inheritance inserted cross-BB copies that reload didn't need (usually acceptable — LRA's overall result is still better)
+
+---
+
+## 8. Debugging Regrename
+
+`pass_regrename` (9.16) renames hard registers post-RA to break false dependencies. It can inadvertently widen the register class beyond what's intended, causing correctness or performance issues.
+
+### Getting regrename dumps
+
+```bash
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-rnreg -S test.c
+# Or dump all RTL passes and look for the *.rnreg file:
+./build-host/gcc/xgcc -B./build-host/gcc -O2 -fdump-rtl-all -S test.c
+```
+
+The dump shows each rename chain, its register class, and the chosen replacement register.
+
+### The `*` constraint pitfall
+
+The `*` modifier in constraint strings means "ignore the following character for register preference." However, `preprocess_constraints()` in `gcc/recog.cc` has **no `case '*'` handler** — the `*` falls through to `default`, where `lookup_constraint("*")` returns an unknown constraint (no-op). The character after `*` is then processed normally and its register class is added to the alternative via `reg_class_subunion`.
+
+This means `"d*g"` computes the same class as `"dg"`:
+
+```
+alt 0: process 'd' → DATA_REGS
+       process '*' → no-op (falls through default)
+       process 'g' → subunion(DATA_REGS, GENERAL_REGS) = GENERAL_REGS
+```
+
+Regrename calls `alternative_class()` for the chosen alternative and stores the class in `tmp->cl`. In `regrename_find_superclass()`, `punavailable |= ~reg_class_contents[tmp->cl]` intersects classes across all uses in the chain. If the class is `GENERAL_REGS`, address registers are available for renaming — even though `*` was intended to discourage them.
+
+### The fix: split into separate alternatives
+
+Split `"d*g"` into `"+d,g"` (two separate alternatives). Now `constrain_operands` picks the lowest-cost matching alternative. For a data register, alt 0 (`d` → `DATA_REGS`) is chosen. Regrename sees `DATA_REGS` and can only rename to other data registers.
+
+**Key rule:** Every constraint letter that maps to a different register class should be in its own alternative, separated by commas. Never combine register classes within a single alternative using `*` — the `*` is ignored by `preprocess_constraints` and the class gets widened.
+
+All operands in the pattern must have the same number of alternatives. When adding an alternative for operand 0, add a matching entry for every other operand:
+
+```
+; Before (single alt, class = GENERAL_REGS):
+  (match_operand:HI 0 "nonimmediate_operand" "+d*g")
+  (match_operand     1 ""                    "")
+
+; After (two alts, alt 0 = DATA_REGS, alt 1 = GENERAL_REGS):
+  (match_operand:HI 0 "nonimmediate_operand" "+d,g")
+  (match_operand     1 ""                    ",")
+```
+
+The `+` (read-write) modifier only appears on the first alternative — `"+d,g"` not `"+d,+g"`.
+
+### Patterns fixed in this branch
+
+| Pattern | Original | Fixed | Commit |
+|---------|----------|-------|--------|
+| `beq0_di` | `"d*a,o,<>"` | `"d,a,o,<>"` | regalloc |
+| movqi !CF (op1) | `"dmSi*a,di*a,dmSi"` | `"dmSi,a,di,a,dmSi"` | regalloc |
+| movqi CF (op0/op1) | `"d*a"` / `"di*a"` | `"d,*a,*a"` / `"a,di,a"` | regalloc |
+| `ashldi_sexthi` | `"=m,a*d"` | `"=m,a,d"` | regalloc |
+| `*dbne_hi` | `"+d*g"` | `"+d,g"` | loop/DBRA |
+| `*dbne_si` | `"+d*g"` | `"+d,g"` | loop/DBRA |
+| `*dbge_hi` | `"+d*am"` | `"+d,a,m"` | loop/DBRA |
+| `*dbge_si` | `"+d*am"` | `"+d,a,m"` | loop/DBRA |
+
+### Diagnosing a regrename issue
+
+1. Compile with `-fdump-rtl-all` and find the `.rnreg` dump
+2. Search for the affected register (e.g. `d0`) — find the rename chain
+3. Check the class shown for that chain (e.g. `GENERAL_REGS`)
+4. If the class is wider than expected, examine the constraint strings for all insns in the chain
+5. Look for `*` within a single alternative that unions register classes
+6. Fix by splitting into separate alternatives
 

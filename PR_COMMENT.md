@@ -30,7 +30,7 @@ Disable with: `-mno-lra`
 
 ### IRA Improvements
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Extended with deeper pointer-derivation analysis for LRA mode. All ADDR_REGS promotion is disabled on ColdFire, where it causes IRA/LRA to loop indefinitely due to unsatisfiable allocation conflicts. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves, guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from `add.w %dN,%dN`. On 68000/68010, a peephole2 fixes the NULL-check regression with CC elision.
+Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Extended with deeper pointer-derivation analysis for LRA mode. All ADDR_REGS promotion is disabled on ColdFire, where it causes IRA/LRA to loop indefinitely due to unsatisfiable allocation conflicts. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves, guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from `add.w %dN,%dN`. On 68000/68010, a peephole2 fixes the NULL-check regression with CC elision. Fixed constraint `*` in `beq0_di`, movqi, `ashldi_sexthi` to prevent regrename from widening register classes.
 
 Budget-based pass-through merge (`-fira-merge-passthrough`, default on for m68k): in IRA's hierarchical allocator, pass-through allocnos (zero refs at child loop level) are merged with their parent to eliminate loop-boundary copies, but limited by a budget so enough remain as cheap spill candidates under register pressure.
 
@@ -60,7 +60,7 @@ Disable step discount with: `-fno-ivopts-autoinc-step`
 
 ### DBRA Loop Optimization
 
-Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP determines if the iteration count fits in 16 bits; when safe, counters are narrowed to HImode via a preferred-mode fallback in `loop-doloop.cc`. This handles SImode IVs bounded by 16-bit values. `TARGET_DOLOOP_COST_FOR_COMPARE` credits `dbra` in the IVOPTS cost model.
+Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP determines if the iteration count fits in 16 bits; when safe, counters are narrowed to HImode via a preferred-mode fallback in `loop-doloop.cc`. This handles SImode IVs bounded by 16-bit values. `TARGET_DOLOOP_COST_FOR_COMPARE` credits `dbra` in the IVOPTS cost model. Fixed constraint `*` in `*dbne`/`*dbge` to prevent regrename from renaming the loop counter out of data registers.
 
 Disable with: `-mno-m68k-doloop`
 

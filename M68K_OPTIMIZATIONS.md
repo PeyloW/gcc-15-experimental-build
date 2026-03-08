@@ -97,6 +97,8 @@ Disable pass-through merge with: `-fno-ira-merge-passthrough`
 
 **IRA promotion:** IRA assigns pseudo-registers to register classes based on instruction constraints. However, it sometimes assigns a pointer pseudo to DATA_REGS when address registers are under pressure. On m68k, data registers cannot be used as base registers in memory operands — any `(d3)` would require a `move.l d3,a0` copy first. The hook scans uses of each pseudo and forces address-register allocation when any use is inside a MEM operand.
 
+**Constraint `*` fixes:** Several pre-existing `define_insn` patterns used `*` within a single constraint alternative (e.g. `"d*a"`, `"a*d"`), intending to discourage certain register classes. However, `preprocess_constraints()` ignores `*`, so the class unions to `GENERAL_REGS`, allowing `pass_regrename` (9.16) to rename between data and address registers. Fixed by splitting into separate alternatives: `"d*a"` → `"d,a"`. Affected patterns: `beq0_di`, movqi (both 68k and ColdFire), `ashldi_sexthi`. See [GCC_DEBUG.md §8](GCC_DEBUG.md#8-debugging-regrename).
+
 **Address register zero test (68000/68010):** The peephole2 matches a `cbranchsi4_insn` comparing an address register against zero and adds a clobber, forming a `*cbranchsi4_areg_zero` insn. The output template first checks `m68k_find_flags_value()` — if CC is already valid for the address register (e.g., from a preceding `move.l %aN,<mem>`), the move is skipped entirely and only the branch is emitted. Otherwise, the template calls `output_move_simode` (which sets `flags_valid = FLAGS_VALID_MOVE` and `flags_operand1 = %dN`), then `m68k_output_compare_si` (which finds flags already valid and elides `tst.l`), then `m68k_output_branch_integer`. Net assembly: `move.l %aN,%dN; jCC label` (4 bytes) instead of `cmp.w #0,%aN; jCC label` (6 bytes), or just `jCC label` (2 bytes) when CC is already valid.
 
 ### Examples
@@ -251,6 +253,8 @@ move.w  %d0,(%a2)+          ; write with POST_INC
 Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propagation determines if the iteration count fits in 16 bits; when safe, the doloop pass narrows the counter to HImode to enable `dbra`. A preferred-mode fallback in `loop-doloop.cc` handles the common case where the loop IV is SImode (e.g. `long i`) but bounded by a 16-bit value: the pass tries `TARGET_PREFERRED_DOLOOP_MODE` (HImode) when the standard `word_mode` fallback fails. `TARGET_DOLOOP_MIN_ITERATIONS` (set to 1) ensures `dbra` is used even for small trip counts.
 
 IVOPTS can transform count-down loops into pointer-comparison loops, preventing `dbra`. A new `TARGET_DOLOOP_COST_FOR_COMPARE` hook credits `dbra` in the IVOPTS cost model, keeping the counter IV for `dbra` over pointer comparison. For dynamic counts, `__builtin_assume()` can provide the range information needed.
+
+The pre-existing `*dbne_hi`, `*dbne_si`, `*dbge_hi`, and `*dbge_si` patterns used `*` within a single constraint alternative (e.g. `"+d*g"`), which allowed `pass_regrename` (9.16) to rename the loop counter from a data register to an address register — breaking `dbra`. Fixed by splitting into separate alternatives: `"+d*g"` → `"+d,g"`. See [GCC_DEBUG.md §8](GCC_DEBUG.md#8-debugging-regrename).
 
 Disable with: `-mno-m68k-doloop`
 

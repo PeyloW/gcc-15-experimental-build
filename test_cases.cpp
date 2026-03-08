@@ -1,4 +1,5 @@
 #define __forceinline __attribute__((__always_inline__)) inline
+#define __assume(p) __attribute__((assume(p)))
 #define __assume_count(i, c) __attribute__((assume(i >= 0 && i < c)))
 
 template<class T, class... Args>
@@ -1226,6 +1227,8 @@ extern "C" {
      * not just clr.w which only clears the low 16 bits.
      */
     struct point_s { short x, y; };
+    struct size_s { short width, height; };
+    struct rect_s { point_s origin; size_s size; };
 
     extern void __attribute__((noinline))
     use_point(void* canvas, void* image, void* rect, point_s p);
@@ -1259,6 +1262,87 @@ extern "C" {
                     C[i * N + j] += bit_extract(tmp, 2, 4) * bit_extract(tmp, 5, 7);
                 }
             }
+        }
+    }
+
+    struct image_c {
+        short* _bitmap;
+        short* _maskmap;
+        short _line_words;
+    };
+    struct canvas_c {
+        image_c& _image;
+        short _tileset_line_words;
+    };
+    struct blitter_s {
+        enum hop_e {
+            hop_one = 0,
+            hop_halftone = 1,
+            hop_src = 2,
+            hop_src_and_halftone = 3
+        };
+
+        enum lop_e {
+            lop_zero = 0,
+            lop_src = 3,
+            lop_notsrc_and_dst = 4,
+            lop_src_or_dst = 7,
+            lop_one = 15
+        };
+
+        unsigned short halftoneRAM[16];
+        short srcIncX;
+        short srcIncY;
+        unsigned short* volatile pSrc;
+        unsigned short endMask[3];
+        short dstIncX;
+        short dstIncY;
+        unsigned short* volatile pDst;
+        unsigned short countX;
+        volatile unsigned short countY;
+        unsigned char HOP;
+        unsigned char LOP;
+        unsigned char mode;
+        unsigned char skew;
+#ifdef __M68000__
+        __forceinline void start(bool hog = false) {
+            if (hog) {
+                __asm__ volatile ("move.b #0xc0,0xffff8A3C.w \n\t"  : : : );
+            } else {
+                __asm__ volatile (
+                                  "move.b #0x80,0xffff8A3C.w \n\t"
+                                  "nop \n"
+                                  "1: bset.b #7,0xffff8A3C.w \n\t"
+                                  "nop \n\t"
+                                  "bne.s 1b \n\t" : : : );
+            }
+        }
+#else
+        void start(bool hog = false);
+#endif
+    };
+#ifdef __M68000__
+    static struct blitter_s* pBlitter = (struct blitter_s*)0xffff8a00;
+#else
+    extern struct blitter_s* pBlitter;
+#endif
+    
+    void test_draw_tile(const canvas_c* self, const image_c& srcImage, const rect_s& rect, point_s at) {
+        auto blitter = pBlitter;
+        const short src_word_offset = (rect.origin.y * self->_tileset_line_words)
+        + (rect.origin.x >> 4);
+        unsigned short* src_bitmap = (unsigned short*)srcImage._bitmap + src_word_offset * 4;
+        blitter->pSrc = src_bitmap;
+        
+        const short dst_word_offset = (at.y * self->_image._line_words)
+        + (at.x >> 4);
+        unsigned short* dst_bitmap = (unsigned short*)self->_image._bitmap + dst_word_offset * 4;
+        blitter->pDst = dst_bitmap;
+        
+        blitter->LOP = blitter_s::lop_src;
+        for (int i = 0; i < 4; i++) {
+            blitter->countY = 1;
+            blitter->start(true);
         }
     }
 

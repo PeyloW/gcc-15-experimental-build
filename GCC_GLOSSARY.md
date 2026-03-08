@@ -95,6 +95,9 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 <a id="ra"></a>
 **RA** (Register Allocation) — The process of mapping virtual registers to physical registers. See [IRA](#ira).
 
+<a id="regrename"></a>
+**regrename** — Post-RA RTL pass (9.16) that renames hard registers to break false dependencies. Builds def-use chains and replaces registers with alternatives from the same class. Caution: the `*` modifier in constraint strings is ignored by `preprocess_constraints()`, so `"d*g"` unions to `GENERAL_REGS` instead of preferring `DATA_REGS`. Fix by splitting alternatives: `"d,g"`. See [GCC_DEBUG.md §8](GCC_DEBUG.md#8-debugging-regrename).
+
 <a id="rtl"></a>
 **RTL** (Register Transfer Language) — GCC's low-level [IR](#ir). Each instruction is an [RTX](#rtx) expression tree describing a register transfer: `(set dst src)`. Closely mirrors machine instructions but uses virtual registers until [RA](#ra).
 
