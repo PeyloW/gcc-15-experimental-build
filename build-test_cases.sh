@@ -27,6 +27,7 @@ fi
 
 SOURCE="test_cases.cpp"
 OUTPUT_DIR="tmp/test_cases"
+REGR_LOG="$OUTPUT_DIR/regressed.log"
 
 if [ ! -f "$SOURCE" ]; then
     echo "Error: $SOURCE not found"
@@ -35,6 +36,9 @@ fi
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
+
+# Clear regression log
+> "$REGR_LOG"
 
 echo "Generating assembly files for $SOURCE..."
 
@@ -118,6 +122,41 @@ count_metric() {
     fi
 }
 
+# Compare per-function max cycles between old and new.
+# Outputs "regressions/improvements" where regressions = functions faster
+# in old, improvements = functions faster in new.
+# Also appends regressed functions to REGR_LOG.
+
+count_regressions() {
+    local old_file="$1"
+    local new_file="$2"
+    local cpu="$3"
+    local variant_name="$4"
+    if [ -z "$CLCCNT" ]; then
+        echo "-"
+        return
+    fi
+    # Extract "funcname max_cycles" from each file
+    local old_data new_data
+    old_data=$("$CLCCNT" -c "$cpu" "$old_file" 2>/dev/null | awk '{n=split($NF,a,"-"); print $1, (n>1 ? a[2] : a[1])}')
+    new_data=$("$CLCCNT" -c "$cpu" "$new_file" 2>/dev/null | awk '{n=split($NF,a,"-"); print $1, (n>1 ? a[2] : a[1])}')
+    # Join on function name, count regressions/improvements
+    # Lines starting with "R " are regression details, last line is the summary
+    local result
+    result=$(paste <(echo "$old_data" | sort) <(echo "$new_data" | sort) | awk -v var="$variant_name" '
+        $1 == $3 {
+            old = $2+0; new = $4+0
+            if (new > old) { reg++; print "R\t" var "\t" $1 "\t" old "\t" new "\t+" new-old }
+            else if (new < old) imp++
+        }
+        END { print "S\t" reg+0 "/" imp+0 }
+    ')
+    # Append regression lines to log
+    echo "$result" | grep '^R' | cut -f2- >> "$REGR_LOG"
+    # Output the summary
+    echo "$result" | grep '^S' | cut -f2-
+}
+
 # Map variant suffix to clccnt CPU model
 # ColdFire has no cycle model; use 060 as closest approximation
 cpu_for_variant() {
@@ -139,11 +178,11 @@ else
 fi
 echo ""
 if $SHOW_RELOAD; then
-    printf "%-22s %8s %8s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff%" "Reload" "Reldiff" "Rel%"
-    printf "%-22s %8s %8s %8s %8s %8s %8s\n" "-------" "---" "---" "-----" "------" "-------" "----"
+    printf "%-22s %8s %8s %8s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff%" "Reload" "Reldiff" "Rel%" "Regr"
+    printf "%-22s %8s %8s %8s %8s %8s %8s %8s\n" "-------" "---" "---" "-----" "------" "-------" "----" "----"
 else
-    printf "%-22s %8s %8s %8s\n" "Variant" "Old" "New" "Diff%"
-    printf "%-22s %8s %8s %8s\n" "-------" "---" "---" "-----"
+    printf "%-22s %8s %8s %8s %8s\n" "Variant" "Old" "New" "Diff%" "Regr"
+    printf "%-22s %8s %8s %8s %8s\n" "-------" "---" "---" "-----" "----"
 fi
 
 for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030" "O2 -m68060:O2_68060" "Os -m68060:Os_68060" "O2 -mcpu=5475:O2_cf" "Os -mcpu=5475:Os_cf"; do
@@ -165,6 +204,8 @@ for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -
             pct="0.0"
         fi
 
+        regr=$(count_regressions "$old_file" "$new_file" "$cpu" "$display_name")
+
         if $SHOW_RELOAD; then
             # Reload columns (compare Reload vs New)
             if [ -f "$reload_file" ]; then
@@ -175,12 +216,12 @@ for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -
                 else
                     reload_pct="0.0"
                 fi
-                printf "%-22s %8d %8d %7s%% %8d %8d %6s%%\n" "$display_name" "$old_count" "$new_count" "$pct" "$reload_count" "$reload_diff" "$reload_pct"
+                printf "%-22s %8d %8d %7s%% %8d %8d %6s%% %8s\n" "$display_name" "$old_count" "$new_count" "$pct" "$reload_count" "$reload_diff" "$reload_pct" "$regr"
             else
-                printf "%-22s %8d %8d %7s%% %8s %8s %6s\n" "$display_name" "$old_count" "$new_count" "$pct" "ERR" "-" "-"
+                printf "%-22s %8d %8d %7s%% %8s %8s %6s %8s\n" "$display_name" "$old_count" "$new_count" "$pct" "ERR" "-" "-" "$regr"
             fi
         else
-            printf "%-22s %8d %8d %7s%%\n" "$display_name" "$old_count" "$new_count" "$pct"
+            printf "%-22s %8d %8d %7s%% %8s\n" "$display_name" "$old_count" "$new_count" "$pct" "$regr"
         fi
     fi
 done
