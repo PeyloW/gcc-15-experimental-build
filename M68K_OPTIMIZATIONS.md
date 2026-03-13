@@ -35,7 +35,7 @@ Rewritten cost model using lookup tables with actual cycle counts per CPU genera
 
 `TARGET_INSN_COST` costs whole instructions including the destination operand. GCC's default only costs the source, so memory stores appear cheap. Non-RMW compound operations to memory are costed additively (copy+op+store), preventing combine passes from folding IVs into base+offset form that needs three instructions. On 68020+, address sub-expressions inside MEM are costed once as addressing modes, avoiding double-counting.
 
-**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new)
+**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new)
 
 **Code:** `gcc/config/m68k/m68k.cc` (`m68k_rtx_costs_impl()`, `m68k_insn_cost_impl()`, `m68k_address_cost_impl()`), `gcc/config/m68k/m68k_costs.cc`
 
@@ -87,7 +87,7 @@ Disable promotion with: `-mno-m68k-ira-promote`
 
 Disable pass-through merge with: `-fno-ira-merge-passthrough`
 
-**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
+**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
 
 **Patterns:** `*cbranchsi4_areg_zero`, `*cbranchsi4_areg_zero_rev` (`define_insn`), address register zero test (`define_peephole2`)
 
@@ -100,6 +100,16 @@ Disable pass-through merge with: `-fno-ira-merge-passthrough`
 **Constraint `*` fixes:** Several pre-existing `define_insn` patterns used `*` within a single constraint alternative (e.g. `"d*a"`, `"a*d"`), intending to discourage certain register classes. However, `preprocess_constraints()` ignores `*`, so the class unions to `GENERAL_REGS`, allowing `pass_regrename` (9.16) to rename between data and address registers. Fixed by splitting into separate alternatives: `"d*a"` → `"d,a"`. Affected patterns: `beq0_di`, movqi (both 68k and ColdFire), `ashldi_sexthi`. See [GCC_DEBUG.md §8](GCC_DEBUG.md#8-debugging-regrename).
 
 **Address register zero test (68000/68010):** The peephole2 matches a `cbranchsi4_insn` comparing an address register against zero and adds a clobber, forming a `*cbranchsi4_areg_zero` insn. The output template first checks `m68k_find_flags_value()` — if CC is already valid for the address register (e.g., from a preceding `move.l %aN,<mem>`), the move is skipped entirely and only the branch is emitted. Otherwise, the template calls `output_move_simode` (which sets `flags_valid = FLAGS_VALID_MOVE` and `flags_operand1 = %dN`), then `m68k_output_compare_si` (which finds flags already valid and elides `tst.l`), then `m68k_output_branch_integer`. Net assembly: `move.l %aN,%dN; jCC label` (4 bytes) instead of `cmp.w #0,%aN; jCC label` (6 bytes), or just `jCC label` (2 bytes) when CC is already valid.
+
+### Break False Dependency
+
+When a pseudo is built from partial writes (`bfins` + `strict_low_part`) that collectively cover all 32 bits, dataflow treats each as read-modify-write. Via loop back-edges, the pseudo appears live across calls, forcing IRA to use callee-saved registers. This pass inserts a zero-cost clobber before the first partial write to break the false dependency. A cleanup pass removes the standalone clobbers after register allocation.
+
+Disable with: `-mno-m68k-break-false-dep`
+
+**Passes:** `m68k-break-false-dep` (new pre-IRA RTL pass), `m68k-break-false-dep-cleanup` (new post-RA RTL pass)
+
+**Code:** `gcc/config/m68k/m68k-pass-regalloc.cc`
 
 ### Examples
 
@@ -254,11 +264,13 @@ Uses `dbra` for loop counters via GCC's doloop infrastructure. Value Range Propa
 
 IVOPTS can transform count-down loops into pointer-comparison loops, preventing `dbra`. A new `TARGET_DOLOOP_COST_FOR_COMPARE` hook credits `dbra` in the IVOPTS cost model, keeping the counter IV for `dbra` over pointer comparison. For dynamic counts, `__builtin_assume()` can provide the range information needed.
 
+To avoid high register pressure, `TARGET_PREDICT_DOLOOP_P` checks whether the exit IV has uses in the loop body beyond the exit test and its own increment. If it does, the doloop counter would be redundant — adding register pressure without benefit. An RTL-level safety net in the `doloop_end` expand checks whether the exit IV register still has body uses after IVOPTS (which may not have generated autoincrement), blocking `dbra` when it would cause spills.
+
 The pre-existing `*dbne_hi`, `*dbne_si`, `*dbge_hi`, and `*dbge_si` patterns used `*` within a single constraint alternative (e.g. `"+d*g"`), which allowed `pass_regrename` (9.16) to rename the loop counter from a data register to an address register — breaking `dbra`. Fixed by splitting into separate alternatives: `"+d*g"` → `"+d,g"`. See [GCC_DEBUG.md §8](GCC_DEBUG.md#8-debugging-regrename).
 
 Disable with: `-mno-m68k-doloop`
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/loop-doloop.cc`
+**Code:** `gcc/config/m68k/m68k-doloop.cc`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/loop-doloop.cc`
 
 ### Examples
 

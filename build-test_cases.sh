@@ -43,7 +43,7 @@ mkdir -p "$OUTPUT_DIR"
 echo "Generating assembly files for $SOURCE..."
 
 # Common flags for fastcall ABI
-# COMMON_FLAGS="-mfastcall -fpeel-loops -funroll-loops"
+# COMMON_FLAGS="-mfastcall -fpeel-loops -funroll-loops -mno-m68k-doloop"
 COMMON_FLAGS="-mfastcall"
 echo "Common flags: $COMMON_FLAGS"
 echo ""

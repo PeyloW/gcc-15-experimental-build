@@ -152,6 +152,7 @@ The fastest test: each custom pass has a `-mno-*` flag. Disable one at a time to
 | `-mno-m68k-insn-cost` | Instruction cost hook (destination cost) | All costing |
 | `-mno-m68k-btst-extract` | Single-bit btst+sne extraction | 9.14 |
 | `-mno-m68k-avail-copy-elim` | Available copy elimination | 7.29a |
+| `-mno-m68k-break-false-dep` | Break false partial-write live ranges | 7.49a, 9.0a |
 | `-fno-ivopts-autoinc-step` | IV step discount for auto-increment | 5.95 |
 | `-fno-ivopts-autoinc-multiuse` | Multi-use address group auto-increment candidates | 5.95 |
 

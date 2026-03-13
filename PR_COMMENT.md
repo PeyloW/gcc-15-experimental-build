@@ -6,7 +6,7 @@ The m68k backend has received little attention since GCC 3. These optimizations 
 
 Rewritten cost model with actual cycle counts per CPU generation (68000, 68020-030, 68040+). `TARGET_ADDRESS_COST` distinguishes per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed addressing, `TARGET_INSN_COST` costs whole instructions including memory destinations.
 
-**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new)
+**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new)
 
 **Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`
 
@@ -30,19 +30,19 @@ Disable with: `-mno-lra`
 
 ### IRA Improvements
 
-Promotes pointer pseudos from DATA_REGS to ADDR_REGS when used as memory base addresses. Extended with deeper pointer-derivation analysis for LRA mode. All ADDR_REGS promotion is disabled on ColdFire, where it causes IRA/LRA to loop indefinitely due to unsatisfiable allocation conflicts. `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves, guiding IRA to prefer data registers for arithmetic. IRA duplicate use dedup prevents frequency inflation from `add.w %dN,%dN`. On 68000/68010, a peephole2 fixes the NULL-check regression with CC elision. Fixed constraint `*` in `beq0_di`, movqi, `ashldi_sexthi` to prevent regrename from widening register classes.
+Promotes pointer pseudos to ADDR_REGS when used as memory base addresses (disabled on ColdFire). `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves. A peephole2 fixes the 68000 NULL-check regression with CC elision. Fixed constraint `*` in `beq0_di`, movqi, `ashldi_sexthi` to prevent regrename from widening register classes. Budget-based pass-through merge (`-fira-merge-passthrough`) eliminates loop-boundary copies while preserving spill candidates.
 
-Budget-based pass-through merge (`-fira-merge-passthrough`, default on for m68k): in IRA's hierarchical allocator, pass-through allocnos (zero refs at child loop level) are merged with their parent to eliminate loop-boundary copies, but limited by a budget so enough remain as cheap spill candidates under register pressure.
+Breaks false partial-write live ranges before IRA: inserts a clobber when `bfins` + `strict_low_part` collectively define all 32 bits.
 
-Disable promotion with: `-mno-m68k-ira-promote`
+Disable with: `-mno-m68k-ira-promote`, `-fno-ira-merge-passthrough`, `-mno-m68k-break-false-dep`
 
-Disable pass-through merge with: `-fno-ira-merge-passthrough`
+**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`
 
-**Hooks:** `TARGET_IRA_CHANGE_PSEUDO_ALLOCNO_CLASS`, `TARGET_REGISTER_MOVE_COST`
+**Passes:** `m68k-break-false-dep` (new pre-IRA RTL pass), `m68k-break-false-dep-cleanup` (new post-RA RTL pass)
 
 **Patterns:** `*cbranchsi4_areg_zero` (`define_insn`), address register zero test (`define_peephole2`)
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/ira-color.cc`, `gcc/common.opt`
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/config/m68k/m68k-pass-regalloc.cc`, `gcc/config/m68k/m68k.md`, `gcc/ira-build.cc`, `gcc/ira-color.cc`, `gcc/common.opt`
 
 ## 3. Loop Optimization
 
@@ -60,11 +60,11 @@ Disable step discount with: `-fno-ivopts-autoinc-step`
 
 ### DBRA Loop Optimization
 
-Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP determines if the iteration count fits in 16 bits; when safe, counters are narrowed to HImode via a preferred-mode fallback in `loop-doloop.cc`. This handles SImode IVs bounded by 16-bit values. `TARGET_DOLOOP_COST_FOR_COMPARE` credits `dbra` in the IVOPTS cost model. Fixed constraint `*` in `*dbne`/`*dbge` to prevent regrename from renaming the loop counter out of data registers.
+Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP determines if the iteration count fits in 16 bits; when safe, counters are narrowed to HImode via a preferred-mode fallback. `TARGET_DOLOOP_COST_FOR_COMPARE` credits `dbra` in IVOPTS. `TARGET_PREDICT_DOLOOP_P` checks exit IV body uses to avoid redundant count-down registers under high pressure, with an RTL safety net in `doloop_end`. Fixed constraint `*` in `*dbne`/`*dbge` to prevent regrename from renaming the counter out of data registers.
 
 Disable with: `-mno-m68k-doloop`
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/loop-doloop.cc`
+**Code:** `gcc/config/m68k/m68k-doloop.cc`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.md`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/loop-doloop.cc`
 
 ### Loop Unrolling
 

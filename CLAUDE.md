@@ -52,11 +52,12 @@ After making changes to `gcc/config/m68k/` files, run the test suite again. Exis
 
 - `gcc/config/m68k/m68k.cc` - Main m68k backend, target hooks
 - `gcc/config/m68k/m68k_costs.cc` - RTX cost calculations
-- `gcc/config/m68k/m68k-pass-regalloc.cc` - Register allocation pass (canonical scaled index)
+- `gcc/config/m68k/m68k-pass-regalloc.cc` - Register allocation passes (canonical scaled index, break false dep)
 - `gcc/config/m68k/m68k-pass-memreorder.cc` - Memory reordering passes (reorder_mem, reorder_incr)
 - `gcc/config/m68k/m68k-pass-autoinc.cc` - Autoincrement passes (autoinc_split, opt_autoinc, normalize_autoinc, avail_copy_elim)
 - `gcc/config/m68k/m68k-pass-shortopt.cc` - 16/32-bit optimization passes (narrow_index_mult, elim_andi, highword_opt)
 - `gcc/config/m68k/m68k-pass-miscopt.cc` - Miscellaneous optimization pass (reorder_for_cc)
+- `gcc/config/m68k/m68k-doloop.cc` - Doloop/DBRA target hooks and exit IV analysis
 - `gcc/config/m68k/m68k-util.cc` / `m68k-util.h` - Shared RTL utility functions for passes
 - `gcc/config/m68k/m68k.md` - Machine description patterns
 

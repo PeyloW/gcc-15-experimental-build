@@ -431,6 +431,7 @@ Main optimization pipeline run on each function.
 | 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization** | m68k | **Move increments past negative-offset accesses** |
 | 7.48 | `pass_rtl_avoid_store_forwarding` | RTL | Avoid store forwarding | - | Prevent store-to-load |
 | 7.49 | `pass_early_remat` | RTL | Early rematerialization | - | Recompute vs reload |
+| 7.49a | **`m68k_pass_break_false_dep`** | RTL | **Break false partial-write deps** | m68k | **Insert clobber before bfins/strict_low_part sequences** |
 
 ---
 
@@ -447,6 +448,7 @@ Main optimization pipeline run on each function.
 
 | # | Pass | IR | Purpose | Related | Example |
 |---|------|----|---------|---------|---------|
+| 9.0a | **`m68k_pass_break_false_dep_cleanup`** | RTL | **Remove standalone clobbers** | m68k | **Clean up clobbers from 7.49a after RA** |
 | 9.1 | `pass_postreload` | RTL | Post-reload container | - | Parent for post-RA passes |
 | 9.2 | `pass_postreload_cse` | RTL | Post-reload CSE | - | CSE with hard registers |
 | 9.3 | `pass_late_combine` (2) | RTL | Late combining | - | Post-RA combining |
@@ -614,6 +616,20 @@ muls.w  #320,d0
   addq.l #8,pseudo
 ```
 
+#### `m68k_pass_break_false_dep`
+
+**Location**: Before `pass_ira` (8.1), at the end of Phase 7
+**Source**: `gcc/config/m68k/m68k-pass-regalloc.cc`
+
+**Purpose**: Break false partial-write live ranges before IRA. When a pseudo is built from partial writes (`bfins` + `strict_low_part`) that collectively cover all 32 bits, DF treats each as read-modify-write. Via loop back-edges, the pseudo appears live across calls, forcing IRA to use callee-saved registers. This pass inserts a zero-cost clobber before the first partial write to break the false dependency.
+
+#### `m68k_pass_break_false_dep_cleanup`
+
+**Location**: Before `pass_postreload` (9.1), after register allocation
+**Source**: `gcc/config/m68k/m68k-pass-regalloc.cc`
+
+**Purpose**: Remove standalone `(clobber (reg pseudo))` insns inserted by `break_false_dep`. They served their purpose for IRA liveness but LRA does not assign hard registers to standalone clobbers.
+
 #### `m68k_pass_normalize_autoinc`
 
 **Location**: Before `pass_peephole2` (9.14) in Phase 9
@@ -691,10 +707,12 @@ muls.w  #320,d0
 | `m68k_pass_avail_copy_elim` (7.29a) | Eliminate redundant copies | Remove copies available on all paths |
 | `m68k_pass_canon_scaled_index` (7.29b) | Canonical scaled index | Rewrite 3-reg scaled addresses for LRA |
 | `pass_combine` (7.33) | Instruction combining | `clr d0; move d0,(a0)` → `clr (a0)` |
-| `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
-| `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
 | `m68k_pass_opt_autoinc` (7.48a) | Pre-RA auto-increment | Multi-step, cross-BB, reposition on pseudos |
 | `m68k_pass_reorder_incr` (7.48b) | Pre-RA increment normalization | Move increments past negative-offset accesses |
+| `m68k_pass_break_false_dep` (7.49a) | Break false partial-write deps | Insert clobber before bfins/strict_low_part |
+| `m68k_pass_break_false_dep_cleanup` (9.0a) | Remove standalone clobbers | Clean up clobbers from 7.49a after RA |
+| `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
+| `pass_thread_prologue_and_epilogue` (9.8) | Efficient save/restore | Individual pushes → `movem.l d3-d7/a2-a6,-(sp)` |
 | `m68k_pass_normalize_autoinc` (9.13a) | LRA decomposition recovery | Reconstruct LRA-decomposed POST_INC |
 | `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |
