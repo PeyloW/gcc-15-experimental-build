@@ -35,9 +35,19 @@ Rewritten cost model using lookup tables with actual cycle counts per CPU genera
 
 `TARGET_INSN_COST` costs whole instructions including the destination operand. GCC's default only costs the source, so memory stores appear cheap. Non-RMW compound operations to memory are costed additively (copy+op+store), preventing combine passes from folding IVs into base+offset form that needs three instructions. On 68020+, address sub-expressions inside MEM are costed once as addressing modes, avoiding double-counting.
 
-**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new)
+`TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new, default off) enables IVOPTS to classify constant-base pointer IVs (e.g., `(short*)0xffff8240`) as REFERENCE ADDRESS uses instead of GENERIC. PR66768 made IVOPTS bail out for all unknown-base-object addresses to protect named address spaces, but constant pointers in the default address space are safe. Without this hook, IVOPTS can't evaluate `TARGET_ADDRESS_COST` for these accesses and eliminates the destination IV, using expensive indexed addressing instead of separate IVs with autoincrement.
 
-**Code:** `gcc/config/m68k/m68k.cc` (`m68k_rtx_costs_impl()`, `m68k_insn_cost_impl()`, `m68k_address_cost_impl()`), `gcc/config/m68k/m68k_costs.cc`
+`TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (new) extends `TARGET_PREFERRED_RELOAD_CLASS` with use-context flags (`REG_USE_COMPARE`, `REG_USE_ARITH`, `REG_USE_MEM`) so IRA can make finer register class decisions per-use. On m68k, comparison operands prefer DATA_REGS (CMP.W is cheaper than CMPA.W on 68000).
+
+`TARGET_IV_COMPARE_COST` (new) replaces the static `DOLOOP_COST_FOR_COMPARE` with a target hook, giving finer control over IV comparison costing in IVOPTS.
+
+`TARGET_REGISTER_RENAME_PROFITABLE_P` (new) lets targets reject register renames that would create expensive instruction forms. On 68000, renaming a two-operand add (dest == source) into a three-operand form emits `lea (An,Xn),Am` which costs more than `move`+`add`.
+
+The cost model is refactored with `base_cost[2]` arrays indexing word/long separately, `m68k_const_cost()` centralizing immediate constant costing, and IRA register class logic moved from `m68k.cc` to `m68k_costs.cc`.
+
+**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new), `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (new), `TARGET_IV_COMPARE_COST` (new), `TARGET_REGISTER_RENAME_PROFITABLE_P` (new)
+
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/ira-costs.cc`, `gcc/regrename.cc`, `gcc/target.def`
 
 ### Examples
 
@@ -448,7 +458,12 @@ Converts indexed memory accesses with incrementing offsets to post-increment add
 
 Two `define_peephole2` patterns recover POST_INC on read-modify-write instructions when `auto_inc_dec` cannot — the address register appears twice in RMW, preventing standard auto-increment detection. Pattern: `OP.x Dn,(An)` + `addq #size,An` → `OP.x Dn,(An)+`.
 
-**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
+Two additional RTL passes handle cases where PRE and `pass_inc_dec` split load/modify/store across BBs, preventing combine from creating RMW instructions:
+
+- `m68k-sink-for-rmw` sinks a hoisted load and duplicates the merge-block store into branch BBs, so combine can merge `load+modify+store` → `OP.x Dn,(An)+`.
+- `m68k-sink-postinc` strips POST_INC from loads that PRE hoisted, inserting an explicit `addq` before the compensating-offset store. This lets `m68k-normalize-autoinc` merge the `addq` + offset store into a POST_INC store.
+
+**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass), `m68k-sink-for-rmw` (new pre-RA RTL pass), `m68k-sink-postinc` (new post-RA RTL pass)
 
 **Patterns:** RMW+POST_INC recovery (`define_peephole2`)
 
@@ -510,6 +525,16 @@ This is particularly effective for unrolled loops where each peel iteration has 
 ## 6. 16/32-bit Optimization
 
 The m68k's word-oriented architecture means 16-bit operations are often cheaper than 32-bit equivalents, and upper register bits require explicit management. These passes narrow multiplications, hoist zero-extension operations, and optimize 16-bit value packing into 32-bit registers.
+
+### Constant Narrowing
+
+C integer promotion widens `short` operands to `int` before bitwise and shift operations. `forwprop`+`fold` narrows AND back but not shifts, OR, or XOR. This GIMPLE pass narrows the constants to match the truncation type, making entire operations narrow (e.g., 32-bit shift becomes 16-bit shift on `-mshort`).
+
+Disable with: `-mno-m68k-narrow-const-ops`
+
+**Pass:** `m68k-narrow-const-ops` (new GIMPLE pass, runs after `forwprop1`)
+
+**Code:** `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 ### Multiplication Optimization
 
@@ -793,6 +818,26 @@ This pass ensures the register being tested is the last one written before the b
 - `test_mintlib_strcmp()` — two-byte compare loop, reordered for CC
 - `test_libcmini_strcmp()` — same pattern, different implementation
 
+
+### Bit Set Peepholes
+
+Converts variable-position shift sequences to constant-time `bset` on 68000/68010 where `lsl`/`lsr` cost 8+2N cycles:
+
+- `moveq #1` + `lsl.l Dn,Dm` → `moveq #0` + `bset Dn,Dm` (saves 2N cycles)
+- HImode variant for `-mshort`: `moveq #1` + `lsl.w` → `moveq #0` + `bset` (widens to SImode for bset)
+- `move #POW2` + `lsr.l Dn,Dm` → constant-time `bset` sequence (replaces 20+2N cycle shift)
+
+**Patterns:** `define_peephole2` in machine description (guarded by `TUNE_68000_10`)
+
+**Code:** `gcc/config/m68k/m68k.md`
+
+### Tablejump Index Narrowing
+
+Narrows SImode tablejump index to HImode when the table is small enough, enabling `.w` indexed loads instead of `.l`. This also narrows preceding scaling instructions (`add.l` → `add.w`, `ashift.l` → `ashift.w`), saving cycles on 68000 where word operations are cheaper.
+
+**Patterns:** `define_insn_and_split` with `UNSPEC_TABLEJUMP_LOAD`
+
+**Code:** `gcc/config/m68k/m68k.md`, `gcc/config/m68k/m68k.cc`
 
 ### Sibcall
 

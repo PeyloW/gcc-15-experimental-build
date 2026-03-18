@@ -79,6 +79,7 @@ Initial inter-procedural analysis and early optimizations.
 | 2.18 | `pass_early_object_sizes` | GIMPLE-SSA | Evaluate `__builtin_object_size` | `pass_object_sizes` | `__builtin_object_size(p,0)` → 100 |
 | 2.19 | `pass_ccp` | GIMPLE-SSA | Conditional Constant Propagation | - | `if (1) x=2; else x=3;` → `x=2;` |
 | 2.20 | `pass_forwprop` | GIMPLE-SSA | Forward propagation | - | `a=b; c=a+1` → `c=b+1` |
+| 2.20a | **`m68k_pass_narrow_const_ops`** | GIMPLE-SSA | **Narrow widened constants** | m68k | **`or.l #N` → `or.w #N` (undo C promotion)** |
 | 2.21 | `pass_early_thread_jumps` | GIMPLE-SSA | Early jump threading | `pass_thread_jumps` | Shortcut predictable branches |
 | 2.22 | `pass_sra_early` | GIMPLE-SSA | Scalar Replacement of Aggregates | `pass_sra` | `struct {int a,b}` → `int a; int b;` |
 | 2.23 | `pass_build_ealias` | GIMPLE-SSA | Build early alias info | - | Compute memory aliasing |
@@ -412,6 +413,7 @@ Main optimization pipeline run on each function.
 | 7.30 | `pass_initialize_regs` | RTL | Initialize uninitialized regs | - | Set undefined regs to 0 |
 | 7.31 | `pass_ud_rtl_dce` | RTL | Use-def RTL DCE | - | Remove dead code |
 | 7.32 | `pass_ext_dce` | RTL | Extension DCE | - | Remove dead extends |
+| 7.32a | **`m68k_pass_sink_for_rmw`** | RTL | **Sink load+store for RMW** | m68k | **Reassemble PRE-split load/store → `or.w d3,(a0)+`** |
 | 7.33 | `pass_combine` | RTL | **Instruction combining** | - | **`clr d0; move d0,(a0)` → `clr (a0)`** |
 | 7.34 | `pass_late_combine` | RTL | Late combining | - | After other opts |
 | 7.35 | `pass_if_after_combine` | RTL | If-conversion after combine | - | Conditional moves |
@@ -463,6 +465,7 @@ Main optimization pipeline run on each function.
 | 9.12 | `pass_duplicate_computed_gotos` | RTL | Duplicate computed gotos | - | For better scheduling |
 | 9.13 | `pass_sched_fusion` | RTL | Scheduler fusion | - | Fuse for scheduling |
 | 9.13a | **`m68k_pass_normalize_autoinc`** | RTL | **m68k autoinc LRA recovery** | - | **Reconstruct LRA-decomposed POST_INC** |
+| 9.13b | **`m68k_pass_sink_postinc`** | RTL | **Strip hoisted POST_INC** | m68k | **Strip POST_INC, insert addq for normalize** |
 | 9.14 | `pass_peephole2` | RTL | **Peephole optimization 2** | - | **`move.l (a0)+,(a1)+`** (m68k!) |
 | 9.14a | **`m68k_pass_reorder_for_cc`** | RTL | **m68k load reorder for CC** | - | **Load tested reg last, elide `tst`** |
 | 9.15 | `pass_if_after_reload` | RTL | Post-reload if-conversion | - | Late conditional moves |

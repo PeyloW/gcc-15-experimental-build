@@ -5,8 +5,14 @@ Terms used in [GCC_ARCHITECTURE.md](GCC_ARCHITECTURE.md), [GCC_PASSES.md](GCC_PA
 <a id="allocno"></a>
 **allocno** — IRA's representation of a pseudo-register within a specific loop region. Each pseudo gets one allocno per loop level in `ira-region=mixed`/`all` mode. Allocnos at different levels are linked as parent/child pairs; a **pass-through allocno** has zero references at its level (live but not used there). See [IRA](#ira).
 
+<a id="address-cost"></a>
+**address_cost** — `TARGET_ADDRESS_COST` hook; returns the cost of an addressing mode for [IVOPTS](#ivopts). On m68k, indexed `d(An,Xn)` costs 12 bus cycles vs 4 for simple `(An)`. IVOPTS uses this to decide whether to keep separate pointer IVs (enabling [post-increment](#postinc)) or merge them into one IV with indexed addressing.
+
 <a id="ast"></a>
 **AST** (Abstract Syntax Tree) — Tree representation of parsed source code. In GCC, the AST is [GENERIC](#generic). Each node represents a language construct (expression, statement, declaration).
+
+<a id="base-object"></a>
+**base_object** — In [IVOPTS](#ivopts), the memory object that an [IV](#iv) points to, determined by `determine_base_object()`. Used for alias checking (IVs with different base_objects can't be interchanged) and group merging (uses of the same base_object are grouped). Constant-address IVs (e.g., `(short*)0xffff8240`) have no natural base_object; `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` assigns a synthetic one.
 
 <a id="bb"></a>
 **BB** (Basic Block) — A straight-line sequence of instructions with one entry point and one exit point. No branches in the middle, no jumps into the middle. The fundamental unit of [CFG](#cfg) analysis.

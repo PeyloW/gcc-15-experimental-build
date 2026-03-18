@@ -6,9 +6,11 @@ The m68k backend has received little attention since GCC 3. These optimizations 
 
 Rewritten cost model with actual cycle counts per CPU generation (68000, 68020-030, 68040+). `TARGET_ADDRESS_COST` distinguishes per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed addressing, `TARGET_INSN_COST` costs whole instructions including memory destinations.
 
-**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new)
+New target hooks: `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (IVOPTS constant-pointer IV classification), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (use-context IRA class), `TARGET_IV_COMPARE_COST` (IV comparison cost), `TARGET_REGISTER_RENAME_PROFITABLE_P` (reject costly renames).
 
-**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`
+**Hooks:** `TARGET_RTX_COSTS`, `TARGET_ADDRESS_COST`, `TARGET_NEW_ADDRESS_PROFITABLE_P`, `TARGET_INSN_COST`, `TARGET_REGISTER_MOVE_COST`, `TARGET_MEMORY_MOVE_COST`, `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE`, `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE`, `TARGET_IV_COMPARE_COST`, `TARGET_REGISTER_RENAME_PROFITABLE_P`
+
+**Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/ira-costs.cc`, `gcc/regrename.cc`
 
 ## 2. Register Allocation
 
@@ -16,7 +18,7 @@ Register allocation improvements: LRA as default allocator and better IRA regist
 
 ### LRA Register Allocator
 
-Switched m68k to LRA (Local Register Allocator) as default, replacing legacy reload. Fire Flight binary reduced by 1126 bytes (1.6%). Added `m68k_pass_canon_scaled_index` to rewrite 3-register scaled index addresses for LRA, `UNSPEC_TABLEJUMP_LOAD` to avoid constraint conflicts in casesi, and tightened mulhi3 constraints.
+Switched m68k to LRA as default, replacing legacy reload. Added `m68k_pass_canon_scaled_index` for LRA-compatible scaled index addresses.
 
 Disable with: `-mno-lra`
 
@@ -30,9 +32,7 @@ Disable with: `-mno-lra`
 
 ### IRA Improvements
 
-Promotes pointer pseudos to ADDR_REGS when used as memory base addresses (disabled on ColdFire). `TARGET_REGISTER_MOVE_COST` penalizes DATA→ADDR moves. A peephole2 fixes the 68000 NULL-check regression with CC elision. Fixed constraint `*` in `beq0_di`, movqi, `ashldi_sexthi` to prevent regrename from widening register classes. Budget-based pass-through merge (`-fira-merge-passthrough`) eliminates loop-boundary copies while preserving spill candidates.
-
-Breaks false partial-write live ranges before IRA: inserts a clobber when `bfins` + `strict_low_part` collectively define all 32 bits.
+Promotes pointer pseudos to ADDR_REGS when used as memory base addresses. Penalizes DATA→ADDR moves. Peephole2 fixes 68000 NULL-check regression with CC elision. Fixed constraint `*` to prevent regrename from widening classes. Budget-based pass-through merge eliminates loop-boundary copies. Breaks false partial-write live ranges before IRA.
 
 Disable with: `-mno-m68k-ira-promote`, `-fno-ira-merge-passthrough`, `-mno-m68k-break-false-dep`
 
@@ -50,7 +50,7 @@ Induction variable selection, `dbra` loop counter, and jump-table loop unrolling
 
 ### Induction Variable Optimization
 
-Discounts IV step costs to zero when the step matches a memory access size, so IVOPTS prefers separate pointer IVs with post-increment over fewer IVs with indexed addressing. Also prefers fewer IV registers when cost is equal. For loops that read and write through the same pointer, `-fivopts-autoinc-multiuse` generates auto-increment candidates for the last use too, letting the cost model place POST_INC on the write instead of the read.
+Discounts IV step costs to zero when step matches memory access size, preferring separate pointer IVs with post-increment. `-fivopts-autoinc-multiuse` generates autoinc candidates for the last use too, placing POST_INC on writes.
 
 Disable step discount with: `-fno-ivopts-autoinc-step`
 
@@ -60,7 +60,7 @@ Disable step discount with: `-fno-ivopts-autoinc-step`
 
 ### DBRA Loop Optimization
 
-Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP determines if the iteration count fits in 16 bits; when safe, counters are narrowed to HImode via a preferred-mode fallback. `TARGET_DOLOOP_COST_FOR_COMPARE` credits `dbra` in IVOPTS. `TARGET_PREDICT_DOLOOP_P` checks exit IV body uses to avoid redundant count-down registers under high pressure, with an RTL safety net in `doloop_end`. Fixed constraint `*` in `*dbne`/`*dbge` to prevent regrename from renaming the counter out of data registers.
+Uses `dbra` for loop counters via GCC's doloop infrastructure. VRP + preferred-mode fallback narrows counters to HImode. `TARGET_IV_COMPARE_COST` credits `dbra` in IVOPTS. `TARGET_PREDICT_DOLOOP_P` checks exit IV body uses. Fixed constraint `*` in `*dbne`/`*dbge` patterns.
 
 Disable with: `-mno-m68k-doloop`
 
@@ -88,11 +88,11 @@ Post-increment addressing passes and redundant copy cleanup.
 
 ### Autoincrement Pass
 
-Converts indexed memory accesses with incrementing offsets to post-increment addressing, both within and across basic blocks. Suppresses PRE self-loop edge splitting to keep tight loops in a single BB. POST_INC creation validates constraints since predicates accept POST_INC but constraint letters may not. Two `define_peephole2` patterns recover POST_INC on RMW instructions when `auto_inc_dec` cannot (address register appears twice in RMW).
+Converts indexed memory accesses to post-increment within and across BBs. Peephole2 patterns recover POST_INC on RMW. Two RTL passes (`m68k-sink-for-rmw`, `m68k-sink-postinc`) reassemble PRE-split load/store for combine RMW.
 
 Disable with: `-mno-m68k-autoinc`
 
-**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass)
+**Passes:** `m68k-autoinc-split` (new GIMPLE pass), `m68k-autoinc` (new pre-RA RTL pass), `m68k-normalize-autoinc` (new post-RA RTL pass), `m68k-sink-for-rmw` (new RTL pass), `m68k-sink-postinc` (new RTL pass)
 
 **Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`, `gcc/gcse.cc`
 
@@ -110,6 +110,14 @@ Disable with: `-mno-m68k-avail-copy-elim`
 
 Narrowing multiplications, hoisting zero-extensions, and packing 16-bit values into 32-bit registers.
 
+### Constant Narrowing
+
+Narrows C promotion-widened constants in bitwise/shift operations back to match the truncation type (e.g., 32-bit shift → 16-bit on `-mshort`). Disable with: `-mno-m68k-narrow-const-ops`
+
+**Pass:** `m68k-narrow-const-ops` (new GIMPLE pass)
+
+**Code:** `gcc/config/m68k/m68k-pass-shortopt.cc`
+
 ### Multiplication Optimization
 
 Narrows 32-bit multiplications to 16-bit `muls.w` when operand ranges are known to fit (avoiding a library call on 68000), and removes redundant sign extension after 16-bit multiply since `muls.w` already produces a 32-bit signed result.
@@ -124,7 +132,7 @@ Disable with: `-mno-m68k-narrow-index-mult`
 
 ### ANDI Hoisting
 
-Replaces repeated `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. The `moveq` is placed outside the loop, and each zero-extension becomes a simple `move.b` into the pre-cleared register. Also handles `clr.w`+`move.b` sequences (widen `clr.w` to `moveq #0`) and widens `and.w #N` to `and.l #N` when that eliminates a later `andi.l #65535`. A peephole2 combines `andi.l #$ffff` + `clr.w` into a single `moveq #0` for struct zeroing.
+Replaces `andi.l #mask` zero-extension with hoisted `moveq #0`. Handles `clr.w`+`move.b` widening and `and.w #N` → `and.l #N` to eliminate later `andi.l #65535`. Peephole2 for `andi.l #$ffff` + `clr.w` → `moveq #0`.
 
 Disable with: `-mno-m68k-elim-andi`
 
@@ -175,6 +183,22 @@ On m68k, `move` sets CC. If the register tested by a branch is not the last one 
 **Pass:** `m68k-reorder-cc` (new RTL pass)
 
 **Code:** `gcc/config/m68k/m68k-pass-miscopt.cc`
+
+### Bit Set Peepholes
+
+Converts variable-position shift sequences to constant-time `bset` on 68000/68010 (`moveq #1` + `lsl` → `moveq #0` + `bset`). Also converts power-of-2 right shifts. Saves 2N cycles per shift.
+
+**Patterns:** `define_peephole2` (guarded by `TUNE_68000_10`)
+
+**Code:** `gcc/config/m68k/m68k.md`
+
+### Tablejump Index Narrowing
+
+Narrows SImode tablejump index to HImode when the table is small, enabling `.w` indexed loads and narrower scaling instructions.
+
+**Patterns:** `define_insn_and_split` with `UNSPEC_TABLEJUMP_LOAD`
+
+**Code:** `gcc/config/m68k/m68k.md`, `gcc/config/m68k/m68k.cc`
 
 ### Sibcall
 

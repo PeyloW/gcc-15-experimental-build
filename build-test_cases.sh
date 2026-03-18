@@ -43,7 +43,7 @@ mkdir -p "$OUTPUT_DIR"
 echo "Generating assembly files for $SOURCE..."
 
 # Common flags for fastcall ABI
-# COMMON_FLAGS="-mfastcall -fpeel-loops -funroll-loops -mno-m68k-doloop"
+# COMMON_FLAGS="-mfastcall -fpeel-loops -funroll-loops -mno-m68k-doloop  -fira-region=mixed"
 COMMON_FLAGS="-mfastcall"
 echo "Common flags: $COMMON_FLAGS"
 echo ""
@@ -89,6 +89,10 @@ generate "Os_short" "-Os -mshort"
 # 68030 variants
 generate "O2_68030" "-O2 -m68030"
 generate "Os_68030" "-Os -m68030"
+
+# 68040 variants
+generate "O2_68040" "-O2 -m68040"
+generate "Os_68040" "-Os -m68040"
 
 # 68060 variants
 generate "O2_68060" "-O2 -m68060"
@@ -162,6 +166,7 @@ count_regressions() {
 cpu_for_variant() {
     case "$1" in
         *_68030) echo "030" ;;
+        *_68040) echo "040" ;;
         *_68060) echo "060" ;;
         *_cf)    echo "060" ;;
         *)       echo "000" ;;
@@ -185,7 +190,7 @@ else
     printf "%-22s %8s %8s %8s %8s\n" "-------" "---" "---" "-----" "----"
 fi
 
-for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030" "O2 -m68060:O2_68060" "Os -m68060:Os_68060" "O2 -mcpu=5475:O2_cf" "Os -mcpu=5475:Os_cf"; do
+for variant in "O2:O2" "O2 -mshort:O2_short" "Os:Os" "Os -mshort:Os_short" "O2 -m68030:O2_68030" "Os -m68030:Os_68030" "O2 -m68040:O2_68040" "Os -m68040:Os_68040" "O2 -m68060:O2_68060" "Os -m68060:Os_68060" "O2 -mcpu=5475:O2_cf" "Os -mcpu=5475:Os_cf"; do
     display_name="${variant%%:*}"
     suffix="${variant##*:}"
     cpu=$(cpu_for_variant "$suffix")

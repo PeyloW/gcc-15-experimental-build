@@ -236,6 +236,11 @@ extern "C" {
      * Responsible: m68k_reorg() doloop handling, m68k_reorg_postinc()
      * Savings at -O2: ~6 cycles/inner iteration (cmp + jne vs dbra), 8 bytes static
      * Savings at -Os: ~6 cycles/inner iteration (dbra vs cmp/jne), 6 bytes static
+     * 020+ regression (+44 on 68030): IVOPTS selects a different IV structure
+     * for 68030 than 68000, using more complex address computation and more
+     * register saves. The inner loop body is 1 cycle cheaper (improved store
+     * addressing), but outer loop setup is more expensive. Root cause is
+     * IVOPTS cost model interaction with 68030 addressing mode costs.
      */
     void test_matrix_mul(short *a, short *b, short *r, unsigned short n) {
         for (unsigned short i = 0; i < n; i++) {
@@ -381,6 +386,10 @@ extern "C" {
     /* test_doloop_const_large - doloop with large constant count (>65536)
      * Expected: Should NOT use dbra because count exceeds 16-bit limit.
      * The DOLOOP pass should reject this due to iterations > 65536.
+     * 020+ regression (+8 on 68030): IRA puts the loop end pointer in an
+     * address register, forcing cmpa.l (4 cycles on 030) instead of
+     * cmp.l (2 cycles). Same CMP/CMPA cost asymmetry as test_cross_bb_loop.
+     * On 68000 both cost the same so no regression there.
      */
     void test_doloop_const_large(char *p) {
         for (int i = 0; i < 100000; i++) {
@@ -717,6 +726,10 @@ extern "C" {
 
     /* test_cross_bb_loop - definition before loop
      * Expected: moveq before definition, andi in loop eliminated.
+     * 020+ max-cycle regression (+3 on 68030 at 4 iterations) is an
+     * acceptable trade-off. dbra saves 2 cycles/iter but costs +9 fixed
+     * overhead (exit penalty + setup). Breakeven is 5 iterations on 68030.
+     * Most real loops iterate enough for dbra to win.
      */
     unsigned int test_cross_bb_loop(unsigned short start, unsigned short n) {
         unsigned short val = start;
@@ -850,6 +863,13 @@ extern "C" {
         return 0;
     }
 
+    /* 020+ max-cycle regression (+4 on 68030) is an acceptable trade-off.
+     * Cases 12/13 (^=1 and ~) now compile to a single eor.b (-30 cycles each).
+     * This shifts the worst-case path to case 14 (!bitfield), which GCC
+     * compiles with eor+bfextu+bfins instead of the simpler bfextu+not+bfins.
+     * Root cause: GCC core doesn't fold !bitfield into bitfield^=1 for
+     * 1-bit unsigned fields.
+     */
     unsigned char test_bit_struct_event(struct bit_struct_s &s, int op) {
         switch (op) {
             case 10:
@@ -1346,4 +1366,15 @@ extern "C" {
         }
     }
 
+    void test_put_pixel(unsigned short *screen, point_s at, unsigned char col) {
+        int base      = at.y * 80 + ((at.x >> 4) * 4);
+        unsigned short mask = (unsigned short)(0x8000u >> (at.x & 15));
+        for (int p = 0; p < 4; p++) {
+            if (col & (1 << p))
+                screen[base + p] |=  mask;
+            else
+                screen[base + p] &= ~mask;
+        }
+    }
+    
 }

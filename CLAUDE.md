@@ -39,12 +39,31 @@ This compares assembly output between the system compiler (old) and the built co
 - `-Os -mshort` - Size optimization with 16-bit int
 - `-O2 -m68030` - Standard optimization for 68030
 - `-Os -m68030` - Size optimization for 68030
+- `-O2 -m68040` - Standard optimization for 68040
+- `-Os -m68040` - Size optimization for 68040
 - `-O2 -m68060` - Standard optimization for 68060
 - `-Os -m68060` - Size optimization for 68060
 - `-O2 -mcpu=5475` - Standard optimization for ColdFire
 - `-Os -mcpu=5475` - Size optimization for ColdFire
 
 After making changes to `gcc/config/m68k/` files, run the test suite again. Existing tests MUST NOT regress compared to this branch before new changes.
+
+### Stress-test: mintlib vfscanf.c
+
+MintLib's `vfscanf.c` is a particularly tricky file to compile — it has ~1100 basic blocks, 21 nested loops, and heavy switch/tablejump usage. It exercises register allocation, spill/reload, DCE convergence, and if-conversion at scale. Changes to cost models, register preferences, or pattern matching that work on small test cases can cause infinite loops or ICEs on this file.
+
+After any change to IRA hooks, cost functions, or `.md` patterns, verify vfscanf compiles for all multilibs (especially ColdFire):
+
+```bash
+./build-host/gcc/xgcc -B./build-host/gcc -mcpu=5475 -mfastcall -O2 \
+  -fomit-frame-pointer -fgnu89-inline -nostdinc \
+  -I/Users/peylow/mintlib/stdio -I/Users/peylow/mintlib \
+  -I/Users/peylow/mintlib/include -I/Users/peylow/mintlib/mintlib \
+  -I/Users/peylow/mintlib/stdlib -DHAVE_CONFIG_H -D_LIBC -D_REENTRANT \
+  -S /Users/peylow/mintlib/stdio/vfscanf.c -o /dev/null
+```
+
+If it hangs, the likely cause is DCE liveness oscillation (see `gcc/dce.cc` convergence limit) or an ifcvt/rnreg infinite loop triggered by new register allocation patterns.
 
 ## Key Files
 
@@ -54,8 +73,8 @@ After making changes to `gcc/config/m68k/` files, run the test suite again. Exis
 - `gcc/config/m68k/m68k_costs.cc` - RTX cost calculations
 - `gcc/config/m68k/m68k-pass-regalloc.cc` - Register allocation passes (canonical scaled index, break false dep)
 - `gcc/config/m68k/m68k-pass-memreorder.cc` - Memory reordering passes (reorder_mem, reorder_incr)
-- `gcc/config/m68k/m68k-pass-autoinc.cc` - Autoincrement passes (autoinc_split, opt_autoinc, normalize_autoinc, avail_copy_elim)
-- `gcc/config/m68k/m68k-pass-shortopt.cc` - 16/32-bit optimization passes (narrow_index_mult, elim_andi, highword_opt)
+- `gcc/config/m68k/m68k-pass-autoinc.cc` - Autoincrement passes (autoinc_split, opt_autoinc, normalize_autoinc, avail_copy_elim, sink_for_rmw, sink_postinc)
+- `gcc/config/m68k/m68k-pass-shortopt.cc` - 16/32-bit optimization passes (narrow_const_ops, narrow_index_mult, elim_andi, highword_opt)
 - `gcc/config/m68k/m68k-pass-miscopt.cc` - Miscellaneous optimization pass (reorder_for_cc)
 - `gcc/config/m68k/m68k-doloop.cc` - Doloop/DBRA target hooks and exit IV analysis
 - `gcc/config/m68k/m68k-util.cc` / `m68k-util.h` - Shared RTL utility functions for passes
