@@ -25,6 +25,7 @@ A conceptual guide to how GCC transforms C source code into machine instructions
    5. [Combine](#5-combine)
    6. [IRA](#6-ira-register-allocation)
    7. [PRE/FRE](#7-prefre)
+   8. [Instruction Scheduling](#8-instruction-scheduling)
 
 **See also:** [GCC_GLOSSARY.md](GCC_GLOSSARY.md) — terminology reference
 
@@ -637,4 +638,45 @@ PRE detects that `x + y` is *partially* redundant (available on the back edge, n
 **PRE and edge splitting:** PRE sometimes needs to insert computations on CFG edges that don't have a block. It does this by *splitting* the edge — inserting a new empty BB on the edge and placing the computation there. Normally this is harmless, but for self-loop edges (a BB that branches back to itself), splitting creates a new latch BB that adds a jump per iteration and breaks auto-increment patterns. On m68k, `--param=gcse-no-selfloop-split=1` suppresses this, keeping tight loops in a single BB where `(a0)+` addressing works naturally. See [M68K_OPTIMIZATIONS.md §5](M68K_OPTIMIZATIONS.md#5-autoincrement-optimization).
 
 **Files:** `gcc/tree-ssa-pre.cc` (PRE), `gcc/tree-ssa-sccvn.cc` (value numbering used by FRE/PRE), `gcc/gcse.cc` (RTL PRE, self-loop suppression)
+
+### 8. Instruction Scheduling
+
+**What:** GCC's instruction scheduler (`sched1` pre-RA, 7.18; `sched2` post-RA, 9.15) reorders instructions within basic blocks to hide latency and exploit instruction-level parallelism. It builds a dependency DAG (data, anti-, output dependencies), computes ready times, and dispatches instructions using a priority heuristic.
+
+**Why it matters:** On in-order pipelined CPUs (68040, 68060), the order of instructions directly affects performance. A register produced by one instruction may not be available for N cycles — if the next instruction needs that register, the pipeline stalls. The scheduler inserts independent work between producer and consumer to fill the gap.
+
+**Pipeline stalls on 68040/68060:** When an instruction modifies a register that the very next instruction uses as an address (base or index), the pipeline stalls:
+
+| Situation | 68040 | 68060 |
+|-----------|-------|-------|
+| POST_INC writeback → next insn reads same `An` | 1 cycle | 2 cycles |
+| ALU result → used as base `An` | 1 cycle | 2 cycles |
+| ALU result → used as index with ×2/×8/`.w` scale | — | 3 cycles |
+| `move.l <mem>,An` → used as base | — | 1 cycle |
+| ALU result → used as data operand (not address) | 0 | 0 |
+
+On 68060, certain "zero-stall producers" (`lea`, `moveq`, `clr.l`, POST_INC/PRE_DEC) avoid the 2-cycle base/index stall entirely. See `notes/MC68060_superscalar_scheduling.md` for the complete reference.
+
+**68060 dual-issue (superscalar):** The 68060 has two execution pipelines — pOEP (primary) and sOEP (secondary). Two consecutive instructions execute in parallel if six dispatch tests all pass:
+
+1. The sOEP instruction's bytes are in the 96-byte instruction buffer
+2. Both instructions are `pOEP|sOEP` class (simple single-cycle ops like `add`, `move reg,reg`, `clr`, `tst`, `cmp`, `and`, `or`, `moveq`, `ext`, `lea`, shifts)
+3. The sOEP instruction doesn't use PC-relative or base-displacement-indexed addressing
+4. At most one data memory access in the pair
+5. The sOEP's base/index registers aren't written by the pOEP instruction
+6. The sOEP's execute inputs aren't written by the pOEP (with bypass exceptions for `move.l <ea>,Rx` loads and produce-then-store sequences)
+
+When paired, the execution time equals the pOEP instruction alone — the sOEP completes for free.
+
+**GCC's scheduling model:** GCC targets describe their pipeline via a *machine description automaton* — `define_automaton`, `define_cpu_unit`, `define_insn_reservation` in the `.md` file. These declare pipeline resources (e.g., ALU, memory port, OEP slots) and how long each instruction class occupies them. The scheduler uses this to compute issue slots and latencies. Targets without an automaton use a simpler cost-based model where `TARGET_INSN_COST` provides instruction latencies.
+
+**Current m68k status:** The m68k backend does not yet define a scheduling automaton. Instead, pipeline-aware decisions are made through targeted mechanisms:
+
+- **POST_INC stall avoidance** ([M68K_OPTIMIZATIONS.md §8](M68K_OPTIMIZATIONS.md#8-68040-pipeline-optimization)): On 68040, the `opt_autoinc` pass skips converting straight-line consecutive memory accesses to POST_INC form. Offset addressing (`4(%a0)`, `8(%a0)`) avoids the pipeline interlock that back-to-back `(%a0)+` would cause. The 68060 does not stall here — POST_INC is a zero-stall producer (§4.2). Loop autoincrements are unaffected since the loop body separates iterations.
+- **Immediate operand preference** ([M68K_OPTIMIZATIONS.md §1](M68K_OPTIMIZATIONS.md#1-cost-model)): On 68040+, the `Cp` constraint allows moveq-range constants as immediate ALU operands (`and.l #7,%d0`) instead of forcing them into registers (`moveq #7,%d1` + `and.l %d1,%d0`). The register form adds a data dependency stall; the immediate form has no inter-instruction dependency.
+- **`TARGET_NEW_ADDRESS_PROFITABLE_P`**: Prevents the post-RA scheduler from replacing POST_INC with indexed addressing when POST_INC is cheaper.
+
+A full scheduling automaton for 68040/68060 would enable GCC to reorder instructions globally within basic blocks to minimize stalls and maximize dual-issue pairing on 68060. The `notes/MC68060_superscalar_scheduling.md` file contains the complete dispatch rules needed to implement this.
+
+**Files:** `gcc/sched-rgn.cc` (scheduler), `gcc/sched-deps.cc` (dependency analysis), `gcc/genautomata.cc` (automaton generator), `gcc/config/m68k/m68k.md` (no automaton yet — future work)
 

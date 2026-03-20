@@ -206,6 +206,42 @@ Loosens restrictions on sibcall (tail call) optimization under the fastcall ABI.
 
 **Code:** `gcc/config/m68k/m68k.cc`
 
+## 8. 68040 Pipeline and 68060 Superscalar
+
+Targets 68040 pipeline stalls and 68060 dual-issue pairing without affecting 68000/020/030.
+
+### POST_INC Straight-Line Guard (68040)
+
+On 68040, consecutive POST_INC accesses stall 1 cycle per instruction. The `opt_autoinc` pass skips conversion for straight-line consecutive memory accesses on 68040, using offset addressing instead. Loop autoincrements are unaffected. The 68060 does not stall (POST_INC is a zero-stall producer per MC68060UM §4.2).
+
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`
+
+### Immediate ALU Operands (68040+)
+
+On 68040+, `and.l #7,%d0` (1 cycle) is faster than `moveq #7,%d1` + `and.l %d1,%d0` (3 cycles with dependency stall). A `Cp` constraint allows moveq-range constants as immediate ALU operands when `TUNE_68040_60`.
+
+**Patterns:** `Cp` constraint in `andsi3_internal`, `iorsi3_internal`, `addsi3_internal`
+
+**Code:** `gcc/config/m68k/constraints.md`, `gcc/config/m68k/m68k.md`
+
+### 68060 Scheduling Automaton
+
+New `m68060.md` models dual-issue pipelines (pOEP + sOEP) so `sched2` can reorder instructions for pairing. Classifies insns by superscalar dispatch class — `pOEP|sOEP` (simple ALU, moves, shifts) can pair; indexed EA and `pOEP-only` (mul, div, branches, `dbra`) force single-issue. FPU instructions allow integer sOEP overlap. Issue rate is 2. Only `sched2` (post-RA) is enabled — `sched1` would break autoincrements. `-msched=68060` enables scheduling independently of tuning target.
+
+**Code:** `gcc/config/m68k/m68060.md`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.opt`
+
+### Superscalar-Aware Cost Model (68060)
+
+Indexed addressing costs inflated (5-6 vs 2) to reflect dual-issue penalty: indexed modes force `pOEP-only`, halving throughput.
+
+**Code:** `gcc/config/m68k/m68k_costs.cc`
+
+### Loop Header Copying at -Os
+
+New `--param=max-loop-header-insns-for-size` (default 0) enables simple loop rotation at `-Os`, allowing `dbra` at the loop bottom without code size increase.
+
+**Code:** `gcc/tree-ssa-loop-ch.cc`, `gcc/params.opt`
+
 ## Appendix A: libcmini Real-World Example
 
 `memcmp` from libcmini (`-Os -mshort -mfastcall`): §3 (IVOPTS) selects separate pointer IVs, §5 (autoinc) converts to `(a0)+`, §2 (IRA) keeps pointers in address registers. Result: 43% faster, 30% smaller vs stock GCC 15.

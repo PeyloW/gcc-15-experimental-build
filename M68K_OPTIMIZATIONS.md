@@ -19,6 +19,7 @@ A PR-ready version of this document is available in [PR_COMMENT.md](PR_COMMENT.m
 5. [Autoincrement Optimization](#5-autoincrement-optimization)
 6. [16/32-bit Optimization](#6-1632-bit-optimization)
 7. [Various Smaller Optimizations](#7-various-smaller-optimizations)
+8. [68040 Pipeline and 68060 Superscalar](#8-68040-pipeline-and-68060-superscalar)
 
 **Appendix**
 
@@ -866,6 +867,85 @@ short appl_bvset(short bvdisk, short bvhard) {
     ext.l   %d0
     jra     mt_appl_bvset
 ```
+
+---
+
+## 8. 68040 Pipeline and 68060 Superscalar
+
+The 68040 has a pipelined integer unit where back-to-back instructions that write and then read the same register stall the pipeline. The 68060 is superscalar with dual execution pipelines (pOEP + sOEP) that can execute two instructions per cycle when pairing rules are satisfied. These optimizations target each CPU's specific characteristics without affecting 68000/020/030 code generation.
+
+### POST_INC Straight-Line Guard (68040)
+
+On 68040, consecutive POST_INC accesses to the same address register cause a 1-cycle pipeline interlock per instruction — the address register writeback hasn't completed before the next instruction reads it. Offset addressing (base+displacement) avoids the stall. The 68060 does not stall here — POST_INC is a zero-stall producer on 68060 (MC68060UM §4.2), and dual-issue is already impossible for consecutive memory ops (dispatch test 4: at most one data access per pair).
+
+The `opt_autoinc` pass skips the POST_INC conversion on 68040 when all fixup instructions are immediately consecutive with no intervening work, identifying straight-line memory sequences. Loop autoincrements are unaffected — the loop body provides enough separation between iterations.
+
+```asm
+; 68040 without guard: 4 pipeline stalls (3 inter-instruction)
+    clr.l   (%a0)+          ; writeback to a0
+    clr.l   (%a0)+          ; stall: a0 not ready
+    clr.l   (%a0)+          ; stall
+    clr.l   (%a0)+          ; stall
+
+; 68040 with guard: offset addressing, no stalls
+    clr.l   (%a0)
+    clr.l   4(%a0)
+    clr.l   8(%a0)
+    clr.l   12(%a0)
+```
+
+**Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`
+
+### Immediate ALU Operands (68040+)
+
+On 68000, `and.l #7,%d0` costs 16 cycles (4-byte immediate fetched over the slow bus). Loading the constant into a register first — `moveq #7,%d1` + `and.l %d1,%d0` = 12 cycles — is faster. The `andsi3_internal`, `iorsi3_internal`, and `addsi3_internal` patterns exclude moveq-range constants from the immediate constraint, forcing them into registers. This is correct for 68000 but counterproductive on 68040+, where instruction cache makes immediate fetch free: `and.l #7,%d0` = 1 cycle vs `moveq #7,%d1` + `and.l %d1,%d0` = 3 cycles (data dependency stall).
+
+A new constraint `Cp` matches any `const_int` when `TUNE_68040_60`, allowing the immediate form on pipelined CPUs. On 68000/020/030, `Cp` never matches — behavior unchanged.
+
+```asm
+; 68040 before: moveq adds dependency stall
+    moveq   #7,%d1          ; 1 cycle
+    and.l   %d1,%d0         ; 2 cycles (stall on d1)
+
+; 68040 after: immediate form, no dependency
+    and.l   #7,%d0          ; 1 cycle
+```
+
+**Patterns:** `Cp` constraint in `andsi3_internal`, `iorsi3_internal`, `addsi3_internal`
+
+**Code:** `gcc/config/m68k/constraints.md`, `gcc/config/m68k/m68k.md`
+
+### 68060 Scheduling Automaton
+
+A new scheduling description (`m68060.md`) models the 68060's dual-issue pipelines so GCC's `sched2` pass can reorder post-RA instructions to maximize pairing. The automaton defines two CPU units — `m68060_pOEP` (primary) and `m68060_sOEP` (secondary) — plus a `m68060_mem` unit enforcing the one-memory-access-per-pair constraint (dispatch test 4).
+
+Instruction reservations classify each insn type by its superscalar dispatch class:
+
+- **`pOEP|sOEP`** (register-only ALU, moves, compares, shifts, `clr`, `tst`, `lea`, `moveq`, `ext`): can execute in either pipeline. With no memory access, two such instructions pair freely. With one memory access, pairing still works via the memory unit.
+- **`pOEP|sOEP` with indexed EA or RMW**: forced to single-issue because sOEP rejects indexed/base-displacement addressing (dispatch test 3).
+- **`pOEP-only`** (multiply, divide, branches, `dbra`, bit ops, `link`/`unlk`): block the sOEP entirely.
+- **`pOEP-but-allows-sOEP`** (`Scc`, `Bcc`): occupy pOEP but leave sOEP open for a `pOEP|sOEP` instruction.
+- **FPU** instructions: occupy pOEP but allow integer sOEP pairing, enabling FPU/integer overlap.
+
+The issue rate is 2 for 68060 (`m68k_sched_issue_rate`), enabling the scheduler's multi-issue logic. The scheduler uses the automaton to determine which instruction pairs can dispatch simultaneously, reordering within basic blocks to place pairable instructions adjacent.
+
+Only `sched2` (post-RA) is enabled — `sched1` (pre-RA) is disabled because it would separate loads from address increments before `auto_inc_dec` has a chance to form POST_INC patterns.
+
+Scheduling is enabled automatically when tuning for 68060 (`-m68060`). The `-msched=` option allows enabling 68060 scheduling independently of the tuning target (e.g., `-m68040 -msched=68060`).
+
+**Code:** `gcc/config/m68k/m68060.md`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.opt`
+
+### Superscalar-Aware Cost Model (68060)
+
+The 68060 cost table inflates indexed addressing costs (`MEM_INDEX`: 5-6 vs `MEM_REG`: 2) to reflect the real-world superscalar penalty: indexed modes force `pOEP-only` dispatch (dispatch test 3), preventing dual-issue and halving throughput in loop bodies where simple modes would allow pairing. This guides IVOPTS to prefer separate pointer IVs with `(a0)+` over fewer IVs with `(a0,d0.l)`. LEA carries no penalty on 68060 (it is `pOEP|sOEP`), unlike 68000 where `lea (An,Dn.l),Am` is expensive.
+
+**Code:** `gcc/config/m68k/m68k_costs.cc`
+
+### Loop Header Copying at -Os
+
+GCC's `ch` (copy headers) pass rotates while-style loops into do-while form by duplicating the loop header before the loop entry. Stock GCC disables this at `-Os` (zero insns allowed). A new parameter `--param=max-loop-header-insns-for-size` (default 0) makes this configurable. The default of 0 allows rotation of simple loops where the header contains only the exit condition (no extra instructions to duplicate), enabling `dbra` at the loop bottom without code size increase.
+
+**Code:** `gcc/tree-ssa-loop-ch.cc`, `gcc/params.opt`
 
 ---
 
