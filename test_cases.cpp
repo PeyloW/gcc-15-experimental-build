@@ -382,7 +382,19 @@ extern "C" {
             p[i] = 0;
         }
     }
-    
+
+    /* test_doloop_simode_bounded - doloop with SImode counter, VRP-bounded
+     * Expected: Uses dbra because __builtin_unreachable() constrains n
+     * to [1,1000], so VRP proves the iteration count fits in 16 bits and
+     * the doloop pass can use dbra.
+     */
+    void test_doloop_simode_bounded(short *p, int n) {
+        if (n <= 0 || n > 1000) __builtin_unreachable();
+        for (int i = 0; i < n; i++) {
+            p[i] = 0;
+        }
+    }
+
     /* test_doloop_const_large - doloop with large constant count (>65536)
      * Expected: Should NOT use dbra because count exceeds 16-bit limit.
      * The DOLOOP pass should reject this due to iterations > 65536.
@@ -403,6 +415,13 @@ extern "C" {
         buf_a[i] = 1;
         buf_b[i] = 1;
         return f(buf_a) + f(buf_b);
+    }
+    
+    struct large_struct{int a=0; int b=0; int c=0; int d=0; int e=0; int f=0; };
+    int test_clear_and_read_struct(void(*f)(struct large_struct*)) {
+        struct large_struct s;
+        f(&s);
+        return s.a + s.b + s.c + s.d + s.e + s.f;
     }
     
     /* ==========================================================================

@@ -473,11 +473,11 @@ Main optimization pipeline run on each function.
 | 9.17 | `pass_fold_mem_offsets` | RTL | Fold memory offsets | - | Combine offset calculations |
 | 9.18 | `pass_cprop_hardreg` | RTL | **Hard register copy prop** | - | **`move d0,d1; move d1,d2` → use d0** |
 | 9.19 | `pass_fast_rtl_dce` | RTL | Fast RTL DCE | - | Quick dead code removal |
-| 9.19a | **`m68k_pass_highword_opt`** | RTL | **m68k highword optimization** | - | **Word packing, swap+move.w** |
-| 9.19b | **`m68k_pass_elim_andi`** | RTL | **m68k ANDI elimination** | - | **Hoist `moveq #0` for zero-extend** |
 | 9.20 | `pass_reorder_blocks` | RTL | Block reordering | - | Optimize code layout |
 | 9.21 | `pass_leaf_regs` | RTL | Leaf function registers | - | Optimize leaf functions |
 | 9.22 | `pass_split_before_sched2` | RTL | Pre-sched2 split | - | Prepare for scheduling |
+| 9.22a | **`m68k_pass_elim_andi`** | RTL | **m68k ANDI elimination** | - | **Hoist `moveq #0` for zero-extend** |
+| 9.22b | **`m68k_pass_highword_opt`** | RTL | **m68k highword optimization** | - | **Word packing, swap+move.w** |
 | 9.23 | `pass_sched2` | RTL | **Instruction scheduling 2** | - | **Post-RA scheduling** |
 | 9.24 | `pass_stack_regs` | RTL | Stack register allocation | - | x87 FPU stack (not m68k FPU) |
 | 9.25 | `pass_split_before_regstack` | RTL | Pre-regstack split | - | For x87 |
@@ -660,10 +660,10 @@ muls.w  #320,d0
 
 #### `m68k_pass_elim_andi`
 
-**Location**: After `pass_fast_rtl_dce` (9.19) in Phase 9
+**Location**: Before `pass_sched2` (9.23) in Phase 9
 **Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
-**Purpose**: Replace `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves.
+**Purpose**: Replace `andi.l #mask` for zero-extension with a hoisted `moveq #0` and register moves. After inserting the `moveq`, rewrites intermediate sub-word operations to use `strict_low_part` so GCC's dataflow sees the upper bits as live — preventing sched2's fast DCE from deleting the `moveq`.
 
 **Transformation Example**:
 ```asm
@@ -672,15 +672,15 @@ muls.w  #320,d0
   move.b  (a0)+,d0
   andi.l  #255,d0     ; zero-extend
 
-; After: hoisted zero register
-  moveq   #0,d0       ; hoisted
+; After: hoisted zero register + strict_low_part
+  moveq   #0,d0               ; hoisted
 .loop:
-  move.b  (a0)+,d0    ; inherits zero upper bits
+  move.b  (a0)+,d0            ; strict_low_part: upper bits preserved
 ```
 
 #### `m68k_pass_highword_opt`
 
-**Location**: After `pass_fast_rtl_dce` (9.19), before `m68k_pass_elim_andi` in Phase 9
+**Location**: Before `pass_sched2` (9.23), after `m68k_pass_elim_andi` in Phase 9
 **Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 **Purpose**: Optimize word packing, including `struct { short, short }` construction and combining `andi.l #$ffff` + `ori.l #xxxx0000` sequences.
@@ -720,7 +720,7 @@ muls.w  #320,d0
 | `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |
 | `m68k_pass_highword_opt` (9.19a) | Word packing | `andi.l #$ffff; ori.l` → `swap; move.w` |
-| `m68k_pass_elim_andi` (9.19b) | Hoist zero-extension | `andi.l #255,dn` → hoisted `moveq #0,dn` |
+| `m68k_pass_elim_andi` (9.22a) | Hoist zero-extension | `andi.l #255,dn` → hoisted `moveq #0,dn` |
 | `pass_shorten_branches` (10.12) | Use short branches | `jmp label` → `bra.s label` |
 
 ### Machine Description Patterns

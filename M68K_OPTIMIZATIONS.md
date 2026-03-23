@@ -589,6 +589,8 @@ The pass instead inserts `moveq #0,dN` before the register's first definition, p
 
 **Constraint:** The pass must verify that no instruction between the `moveq #0` and the `andi` writes to bits wider than the extension width. A `muls.w` or `ext.l` would clobber the upper bits, invalidating the optimization.
 
+**strict_low_part safety:** GCC's RTL treats `(set (reg:HI) ...)` as a full register write, so liveness-based passes (including sched2's fast DCE) see the hoisted `moveq #0` as dead — killed by the subsequent `.w` operation. To prevent this, the pass rewrites all intermediate sub-word operations between the `moveq` and the deleted `andi` to use `strict_low_part`, which tells GCC's dataflow that only the low bits are written and the upper bits are preserved. This allows the pass to run before sched2, where the 68060 scheduler can reorder the `moveq` for better pipelining.
+
 ### Examples
 
 ```c
@@ -782,6 +784,7 @@ sne     d0
 - `test_extract_reg_bit1()` — register unsigned, bit 1 (NOT profitable, negative test)
 - `test_btst_ashiftrt_hi()` — HI-mode arithmetic shift by 9 → `btst #9` (exceeds immediate limit)
 - `test_btst_ashiftrt_hi_const()` — HI-mode arithmetic shift by 5 → `btst #5` (within immediate limit)
+- `test_put_pixel()` — `-mshort` shifted bit-test via `*cbranchsi4_btst_shifted_hi` pattern
 - `test_bit_struct_active()` through `test_bit_struct_hidden()` — bitfield operations at various positions
 
 
@@ -1022,3 +1025,15 @@ Resolved in §7 Merge Peepholes (`5713692f644`) and §5 Autoincrement (`9daff73b
 **Spill slot sizing:** LRA widens HImode/QImode spill slots to SImode. A `TARGET_LRA_SPILL_SLOT_MODE` hook could give narrow pseudos narrow stack slots, reducing frame size.
 
 **Swap-based spill replacement** was investigated and rejected. A prototype pass tested against all of libcmini produced zero matches — the RA spills for width (not pressure), m68k has enough registers, and cross-BB reloads use different registers.
+
+### B.6 Dead Zero-Extension Elimination (Forward Scan)
+
+When an `andi.l #65535` zero-extends a register that is only used in HImode afterwards (e.g., as a `dbra` counter), the andi is dead — the upper bits are never read. A forward-scan pass was prototyped that follows the register through successor BBs via a worklist, checking `df_get_live_out` / `df_get_live_in` to determine if all uses are narrow.
+
+The approach proved **too fragile for production use**:
+
+- GCC's RTL uses `(subreg:SI (reg:HI N) 0)` to widen a narrow register to SImode. The inner `(reg:HI)` fools the mode check into thinking the use is narrow, when the outer subreg reads all 32 bits.
+- Cross-BB analysis via DF live bitmaps does not carry mode information — a register marked live-out could be used in any mode by successors.
+- Multiple edge cases caused miscompilation in real-world code: `lsl.l` reading all 32 bits through a same-register redef, address-register sources in `movstrict` patterns, function call return values.
+
+A correct implementation would require **DU-chain analysis** (`df_chain_add_problem(DF_DU_CHAIN)`) to enumerate every use of the andi's output and check each one's mode, rather than walking BBs and inferring from liveness bitmaps. The `ext-dce` pass (`gcc/ext-dce.cc`) solves a related problem with per-bit-group liveness tracking and could serve as a model.

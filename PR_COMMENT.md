@@ -132,7 +132,7 @@ Disable with: `-mno-m68k-narrow-index-mult`
 
 ### ANDI Hoisting
 
-Replaces `andi.l #mask` zero-extension with hoisted `moveq #0`. Handles `clr.w`+`move.b` widening and `and.w #N` → `and.l #N` to eliminate later `andi.l #65535`. Peephole2 for `andi.l #$ffff` + `clr.w` → `moveq #0`.
+Replaces `andi.l #mask` zero-extension with hoisted `moveq #0`. Rewrites intermediate sub-word operations to `strict_low_part` so GCC's dataflow preserves the hoisted clear through sched2. Handles `clr.w`+`move.b` widening and `and.w #N` → `and.l #N` to eliminate later `andi.l #65535`. Peephole2 for `andi.l #$ffff` + `clr.w` → `moveq #0`.
 
 Disable with: `-mno-m68k-elim-andi`
 
@@ -168,11 +168,11 @@ Combines adjacent small memory accesses into larger ones (e.g. two `move.w` into
 
 ### Bit Extraction
 
-Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles while `btst` is constant time. For unsigned results, `neg.b` converts `sne` to 0/1. Disabled on 68020+ where `bfextu`/`bfexts` handle this.
+Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles while `btst` is constant time. For unsigned results, `neg.b` converts `sne` to 0/1. Disabled on 68020+ where `bfextu`/`bfexts` handle this. A dedicated pattern (`*cbranchsi4_btst_shifted_hi`) handles `-mshort` mode where combine produces shifted HImode bit-tests instead of the canonical `zero_extract` form.
 
 Disable with: `-mno-m68k-btst-extract`
 
-**Patterns:** `cstore_btst` `define_insn`, `define_peephole2`
+**Patterns:** `cstore_btst` `define_insn`, `*cbranchsi4_btst_shifted_hi`, `define_peephole2`
 
 **Code:** `gcc/config/m68k/m68k.md`
 
