@@ -1,0 +1,774 @@
+
+;; Function std::_Hash_bytes (_ZSt11_Hash_bytesPKvmm, funcdef_no=4, decl_uid=2116, cgraph_uid=5, symbol_order=4)
+
+starting the processing of deferred insns
+ending the processing of deferred insns
+
+
+std::_Hash_bytes
+
+Dataflow summary:
+;;  fully invalidated by EH 	 0 [%d0] 1 [%d1] 8 [%a0] 9 [%a1] 16 [%fp0] 17 [%fp1] 18 [%fp2] 19 [%fp3] 20 [%fp4] 21 [%fp5] 22 [%fp6] 23 [%fp7]
+;;  hardware regs used 	 15 [%sp]
+;;  regular block artificial uses 	 15 [%sp]
+;;  eh block artificial uses 	 15 [%sp] 24 [%argptr]
+;;  entry block defs 	 0 [%d0] 1 [%d1] 2 [%d2] 3 [%d3] 4 [%d4] 5 [%d5] 6 [%d6] 7 [%d7] 8 [%a0] 9 [%a1] 10 [%a2] 11 [%a3] 12 [%a4] 13 [%a5] 14 [%a6] 15 [%sp]
+;;  exit block uses 	 0 [%d0] 2 [%d2] 3 [%d3] 4 [%d4] 5 [%d5] 6 [%d6] 7 [%d7] 10 [%a2] 11 [%a3] 12 [%a4] 13 [%a5] 14 [%a6] 15 [%sp]
+;;  regs ever live 	 0 [%d0] 1 [%d1] 2 [%d2] 3 [%d3] 4 [%d4] 5 [%d5] 6 [%d6] 7 [%d7] 8 [%a0] 10 [%a2] 11 [%a3] 12 [%a4] 13 [%a5] 14 [%a6] 15 [%sp]
+;;  ref usage 	r0={26d,28u} r1={9d,3u} r2={5d,5u} r3={4d,5u} r4={5d,5u} r5={6d,7u} r6={4d,9u} r7={9d,10u} r8={20d,14u} r9={6d} r10={3d,3u} r11={3d,3u} r12={3d,3u} r13={3d,3u} r14={4d,7u,4e} r15={20d,87u} r16={5d} r17={5d} r18={5d} r19={5d} r20={5d} r21={5d} r22={5d} r23={5d} r24={3e} 
+;;    total ref usage 369{170d,192u,7e} in 98{93 regular + 5 call} insns.
+(note 1 0 7 NOTE_INSN_DELETED)
+(note 7 1 201 2 [bb 2] NOTE_INSN_BASIC_BLOCK)
+(insn/f 201 7 202 2 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int -8 [0xfffffffffffffff8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":75:3 -1
+     (nil))
+(insn/f 202 201 203 2 (parallel [
+            (set/f (reg/f:SI 15 %sp)
+                (plus:SI (reg/f:SI 15 %sp)
+                    (const_int -44 [0xffffffffffffffd4])))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -44 [0xffffffffffffffd4])) [5  S4 A16])
+                (reg:SI 2 %d2))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -40 [0xffffffffffffffd8])) [5  S4 A16])
+                (reg:SI 3 %d3))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -36 [0xffffffffffffffdc])) [5  S4 A16])
+                (reg:SI 4 %d4))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -32 [0xffffffffffffffe0])) [5  S4 A16])
+                (reg:SI 5 %d5))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -28 [0xffffffffffffffe4])) [5  S4 A16])
+                (reg:SI 6 %d6))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -24 [0xffffffffffffffe8])) [5  S4 A16])
+                (reg:SI 7 %d7))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -20 [0xffffffffffffffec])) [5  S4 A16])
+                (reg:SI 10 %a2))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -16 [0xfffffffffffffff0])) [5  S4 A16])
+                (reg:SI 11 %a3))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -12 [0xfffffffffffffff4])) [5  S4 A16])
+                (reg:SI 12 %a4))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -8 [0xfffffffffffffff8])) [5  S4 A16])
+                (reg:SI 13 %a5))
+            (set/f (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int -4 [0xfffffffffffffffc])) [5  S4 A16])
+                (reg:SI 14 %a6))
+        ]) "../libstdc++-v3/libsupc++/hash_bytes.cc":75:3 -1
+     (expr_list:REG_DEAD (reg:SI 14 %a6)
+        (expr_list:REG_DEAD (reg:SI 13 %a5)
+            (expr_list:REG_DEAD (reg:SI 12 %a4)
+                (expr_list:REG_DEAD (reg:SI 11 %a3)
+                    (expr_list:REG_DEAD (reg:SI 10 %a2)
+                        (expr_list:REG_DEAD (reg:SI 7 %d7)
+                            (expr_list:REG_DEAD (reg:SI 6 %d6)
+                                (expr_list:REG_DEAD (reg:SI 5 %d5)
+                                    (expr_list:REG_DEAD (reg:SI 4 %d4)
+                                        (expr_list:REG_DEAD (reg:SI 3 %d3)
+                                            (expr_list:REG_DEAD (reg:SI 2 %d2)
+                                                (nil)))))))))))))
+(note 203 202 160 2 NOTE_INSN_PROLOGUE_END)
+(insn 160 203 2 2 (set (reg:SI 8 %a0 [99])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 56 [0x38]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":75:3 169 {*addsi3_internal}
+     (expr_list:REG_EQUAL (plus:SI (reg/f:SI 24 %argptr)
+            (const_int 8 [0x8]))
+        (nil)))
+(insn 2 160 3 2 (set (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])
+        (mem/f/c:SI (post_inc:SI (reg:SI 8 %a0 [99])) [2 ptr+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":75:3 67 {*movsi_m68k2}
+     (expr_list:REG_INC (reg:SI 8 %a0 [99])
+        (expr_list:REG_EQUIV (mem/f/c:SI (plus:SI (reg/f:SI 24 %argptr)
+                    (const_int 8 [0x8])) [2 ptr+0 S4 A16])
+            (nil))))
+(insn 3 2 4 2 (set (reg/v:SI 6 %d6 [orig:65 len ] [65])
+        (mem/c:SI (post_inc:SI (reg:SI 8 %a0 [99])) [1 len+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":75:3 67 {*movsi_m68k2}
+     (expr_list:REG_INC (reg:SI 8 %a0 [99])
+        (expr_list:REG_EQUIV (mem/c:SI (plus:SI (reg/f:SI 24 %argptr)
+                    (const_int 12 [0xc])) [1 len+0 S4 A16])
+            (nil))))
+(note 4 3 5 2 NOTE_INSN_DELETED)
+(note 5 4 163 2 NOTE_INSN_FUNCTION_BEG)
+(insn 163 5 9 2 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (mem/c:SI (post_inc:SI (reg:SI 8 %a0 [99])) [1 seed+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":77:12 67 {*movsi_m68k2}
+     (expr_list:REG_UNUSED (reg:SI 8 %a0 [99])
+        (expr_list:REG_INC (reg:SI 8 %a0 [99])
+            (nil))))
+(insn 9 163 165 2 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (xor:SI (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+            (reg/v:SI 6 %d6 [orig:65 len ] [65]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":77:12 296 {xorsi3_internal}
+     (nil))
+(insn 165 9 12 2 (set (reg:SI 0 %d0 [102])
+        (const_int 3 [0x3])) "../libstdc++-v3/libsupc++/hash_bytes.cc":81:15 67 {*movsi_m68k2}
+     (nil))
+(jump_insn 12 165 136 2 (set (pc)
+        (if_then_else (gtu (reg/v:SI 6 %d6 [orig:65 len ] [65])
+                (reg:SI 0 %d0 [102]))
+            (label_ref:SI 154)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":81:15 8 {cbranchsi4_insn}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [102])
+        (int_list:REG_BR_PROB 955630228 (nil)))
+ -> 154)
+(note 136 12 130 3 [bb 3] NOTE_INSN_BASIC_BLOCK)
+(insn 130 136 155 3 (set (reg/f:SI 14 %a6 [90])
+        (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)) 67 {*movsi_m68k2}
+     (expr_list:REG_EQUAL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (nil)))
+(jump_insn 155 130 156 3 (set (pc)
+        (label_ref 66)) 444 {jump}
+     (nil)
+ -> 66)
+(barrier 156 155 154)
+(code_label 154 156 13 4 16 (nil) [1 uses])
+(note 13 154 166 4 [bb 4] NOTE_INSN_BASIC_BLOCK)
+(insn 166 13 14 4 (set (reg:SI 5 %d5 [orig:61 _86 ] [61])
+        (reg/v:SI 6 %d6 [orig:65 len ] [65])) 67 {*movsi_m68k2}
+     (nil))
+(insn 14 166 168 4 (set (reg:SI 5 %d5 [orig:61 _86 ] [61])
+        (lshiftrt:SI (reg:SI 5 %d5 [orig:61 _86 ] [61])
+            (const_int 2 [0x2]))) 399 {lshrsi3}
+     (nil))
+(insn 168 14 15 4 (set (reg:SI 2 %d2 [orig:56 _78 ] [56])
+        (reg:SI 5 %d5 [orig:61 _86 ] [61])) 67 {*movsi_m68k2}
+     (nil))
+(insn 15 168 16 4 (set (reg:SI 2 %d2 [orig:56 _78 ] [56])
+        (plus:SI (reg:SI 2 %d2 [orig:56 _78 ] [56])
+            (const_int -1 [0xffffffffffffffff]))) 169 {*addsi3_internal}
+     (nil))
+(insn 16 15 190 4 (set (reg:SI 5 %d5 [orig:67 _80 ] [67])
+        (ashift:SI (reg:SI 5 %d5 [orig:61 _86 ] [61])
+            (const_int 2 [0x2]))) 372 {ashlsi3}
+     (nil))
+(insn 190 16 17 4 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])) 67 {*movsi_m68k2}
+     (nil))
+(insn 17 190 6 4 (set (reg/f:SI 5 %d5 [orig:55 _76 ] [55])
+        (plus:SI (reg:SI 5 %d5 [orig:67 _80 ] [67])
+            (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64]))) 169 {*addsi3_internal}
+     (nil))
+(insn 6 17 131 4 (set (reg/v/f:SI 3 %d3 [orig:53 buf ] [53])
+        (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])) "../libstdc++-v3/libsupc++/hash_bytes.cc":78:17 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (nil)))
+(insn 131 6 132 4 (set (reg/f:SI 13 %a5 [91])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 48 [0x30]))) 169 {*addsi3_internal}
+     (expr_list:REG_EQUIV (plus:SI (reg/f:SI 14 %a6)
+            (const_int -4 [0xfffffffffffffffc]))
+        (nil)))
+(insn 132 131 133 4 (set (reg/f:SI 12 %a4 [92])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 49 [0x31]))) 169 {*addsi3_internal}
+     (expr_list:REG_EQUIV (plus:SI (reg/f:SI 14 %a6)
+            (const_int -3 [0xfffffffffffffffd]))
+        (nil)))
+(insn 133 132 134 4 (set (reg/f:SI 11 %a3 [93])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 50 [0x32]))) 169 {*addsi3_internal}
+     (expr_list:REG_EQUIV (plus:SI (reg/f:SI 14 %a6)
+            (const_int -2 [0xfffffffffffffffe]))
+        (nil)))
+(insn 134 133 135 4 (set (reg/f:SI 10 %a2 [89])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 51 [0x33]))) 169 {*addsi3_internal}
+     (expr_list:REG_EQUIV (plus:SI (reg/f:SI 14 %a6)
+            (const_int -1 [0xffffffffffffffff]))
+        (nil)))
+(insn 135 134 59 4 (set (reg/f:SI 14 %a6 [90])
+        (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)) 67 {*movsi_m68k2}
+     (expr_list:REG_EQUAL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (nil)))
+(code_label 59 135 18 5 3 (nil) [1 uses])
+(note 18 59 148 5 [bb 5] NOTE_INSN_BASIC_BLOCK)
+(insn 148 18 22 5 (set (reg/f:SI 8 %a0 [orig:69 buf ] [69])
+        (reg/v/f:SI 3 %d3 [orig:53 buf ] [53])) "../libstdc++-v3/libsupc++/hash_bytes.cc":43:21 67 {*movsi_m68k2}
+     (nil))
+(insn 22 148 25 5 (set (mem/c:QI (reg/f:SI 13 %a5 [91]) [0 MEM <char[1:4]> [(void *)&result]+0 S1 A16])
+        (mem:QI (post_inc:SI (reg/f:SI 8 %a0 [orig:69 buf ] [69])) [0 MEM <char[1:4]> [(void *)buf_52]+0 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":43:21 74 {*m68k.md:1316}
+     (expr_list:REG_INC (reg/f:SI 8 %a0 [orig:69 buf ] [69])
+        (nil)))
+(insn 25 22 28 5 (set (mem/c:QI (reg/f:SI 12 %a4 [92]) [0 MEM <char[1:4]> [(void *)&result]+1 S1 A8])
+        (mem:QI (post_inc:SI (reg/f:SI 8 %a0 [orig:69 buf ] [69])) [0 MEM <char[1:4]> [(void *)buf_52]+1 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":43:21 74 {*m68k.md:1316}
+     (expr_list:REG_INC (reg/f:SI 8 %a0 [orig:69 buf ] [69])
+        (nil)))
+(insn 28 25 31 5 (set (mem/c:QI (reg/f:SI 11 %a3 [93]) [0 MEM <char[1:4]> [(void *)&result]+2 S1 A16])
+        (mem:QI (post_inc:SI (reg/f:SI 8 %a0 [orig:69 buf ] [69])) [0 MEM <char[1:4]> [(void *)buf_52]+2 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":43:21 74 {*m68k.md:1316}
+     (expr_list:REG_INC (reg/f:SI 8 %a0 [orig:69 buf ] [69])
+        (nil)))
+(insn 31 28 34 5 (set (mem/c:QI (reg/f:SI 10 %a2 [89]) [0 MEM <char[1:4]> [(void *)&result]+3 S1 A8])
+        (mem:QI (reg/f:SI 8 %a0 [orig:69 buf ] [69]) [0 MEM <char[1:4]> [(void *)buf_52]+3 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":43:21 74 {*m68k.md:1316}
+     (expr_list:REG_DEAD (reg/f:SI 8 %a0 [orig:69 buf ] [69])
+        (nil)))
+(note 34 31 35 5 NOTE_INSN_DELETED)
+(insn 35 34 36 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (const_int 1540483477 [0x5bd1e995])) "../libstdc++-v3/libsupc++/hash_bytes.cc":84:4 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 4 [0x4])
+        (nil)))
+(insn 36 35 38 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 52 [0x34])) [1 result+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":84:4 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 8 [0x8])
+        (nil)))
+(call_insn/u 38 36 39 5 (set (reg:SI 0 %d0)
+        (call (mem:QI (reg/f:SI 14 %a6 [90]) [0  S1 A8])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":84:4 460 {*non_symbolic_call_value}
+     (expr_list:REG_CALL_DECL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (expr_list:REG_EH_REGION (const_int -2147483648 [0xffffffff80000000])
+            (nil)))
+    (expr_list (use (mem:SI (plus:SI (reg/f:SI 15 %sp)
+                    (scratch:SI)) [0  S4 A16]))
+        (nil)))
+(insn 39 38 40 5 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":84:4 169 {*addsi3_internal}
+     (expr_list:REG_ARGS_SIZE (const_int 0 [0])
+        (nil)))
+(note 40 39 171 5 NOTE_INSN_DELETED)
+(insn 171 40 42 5 (set (reg:SI 4 %d4 [orig:31 _1 ] [31])
+        (reg:SI 0 %d0 [orig:94 k_34 ] [94])) "../libstdc++-v3/libsupc++/hash_bytes.cc":85:9 67 {*movsi_m68k2}
+     (nil))
+(insn 42 171 43 5 (set (reg:SI 4 %d4 [orig:31 _1 ] [31])
+        (lshiftrt:SI (reg:SI 4 %d4 [orig:31 _1 ] [31])
+            (const_int 24 [0x18]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":85:9 398 {lshrsi_17_24}
+     (nil))
+(insn 43 42 44 5 (set (reg/v:SI 4 %d4 [orig:49 k ] [49])
+        (xor:SI (reg:SI 4 %d4 [orig:31 _1 ] [31])
+            (reg:SI 0 %d0 [orig:94 k_34 ] [94]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":85:4 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:94 k_34 ] [94])
+        (nil)))
+(insn 44 43 45 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (const_int 1540483477 [0x5bd1e995])) "../libstdc++-v3/libsupc++/hash_bytes.cc":87:7 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 4 [0x4])
+        (nil)))
+(insn 45 44 47 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (reg/v:SI 7 %d7 [orig:52 hash ] [52])) "../libstdc++-v3/libsupc++/hash_bytes.cc":87:7 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (expr_list:REG_ARGS_SIZE (const_int 8 [0x8])
+            (nil))))
+(call_insn/u 47 45 48 5 (set (reg:SI 0 %d0)
+        (call (mem:QI (reg/f:SI 14 %a6 [90]) [0  S1 A8])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":87:7 460 {*non_symbolic_call_value}
+     (expr_list:REG_CALL_DECL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (expr_list:REG_EH_REGION (const_int -2147483648 [0xffffffff80000000])
+            (nil)))
+    (expr_list (use (mem:SI (plus:SI (reg/f:SI 15 %sp)
+                    (scratch:SI)) [0  S4 A16]))
+        (nil)))
+(insn 48 47 150 5 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":87:7 169 {*addsi3_internal}
+     (expr_list:REG_ARGS_SIZE (const_int 0 [0])
+        (nil)))
+(insn 150 48 51 5 (set (reg:SI 7 %d7 [orig:95 hash_37 ] [95])
+        (reg:SI 0 %d0)) "../libstdc++-v3/libsupc++/hash_bytes.cc":87:7 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg:SI 0 %d0)
+        (nil)))
+(insn 51 150 52 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (const_int 1540483477 [0x5bd1e995])) "../libstdc++-v3/libsupc++/hash_bytes.cc":86:4 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 4 [0x4])
+        (nil)))
+(insn 52 51 54 5 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (reg/v:SI 4 %d4 [orig:49 k ] [49])) "../libstdc++-v3/libsupc++/hash_bytes.cc":86:4 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v:SI 4 %d4 [orig:49 k ] [49])
+        (expr_list:REG_ARGS_SIZE (const_int 8 [0x8])
+            (nil))))
+(call_insn/u 54 52 55 5 (set (reg:SI 0 %d0)
+        (call (mem:QI (reg/f:SI 14 %a6 [90]) [0  S1 A8])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":86:4 460 {*non_symbolic_call_value}
+     (expr_list:REG_CALL_DECL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (expr_list:REG_EH_REGION (const_int -2147483648 [0xffffffff80000000])
+            (nil)))
+    (expr_list (use (mem:SI (plus:SI (reg/f:SI 15 %sp)
+                    (scratch:SI)) [0  S4 A16]))
+        (nil)))
+(insn 55 54 56 5 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":86:4 169 {*addsi3_internal}
+     (expr_list:REG_ARGS_SIZE (const_int 0 [0])
+        (nil)))
+(note 56 55 57 5 NOTE_INSN_DELETED)
+(insn 57 56 58 5 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (xor:SI (reg:SI 7 %d7 [orig:95 hash_37 ] [95])
+            (reg:SI 0 %d0 [orig:96 k_36 ] [96]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":88:7 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:96 k_36 ] [96])
+        (nil)))
+(insn 58 57 60 5 (set (reg/v/f:SI 3 %d3 [orig:53 buf ] [53])
+        (plus:SI (reg/v/f:SI 3 %d3 [orig:53 buf ] [53])
+            (const_int 4 [0x4]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":89:6 169 {*addsi3_internal}
+     (nil))
+(jump_insn 60 58 61 5 (set (pc)
+        (if_then_else (ne (reg/v/f:SI 3 %d3 [orig:53 buf ] [53])
+                (reg/f:SI 5 %d5 [orig:55 _76 ] [55]))
+            (label_ref:SI 59)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":81:15 8 {cbranchsi4_insn}
+     (int_list:REG_BR_PROB 955630228 (nil))
+ -> 59)
+(note 61 60 173 6 [bb 6] NOTE_INSN_BASIC_BLOCK)
+(insn 173 61 62 6 (set (reg:SI 0 %d0 [107])
+        (const_int 3 [0x3])) 67 {*movsi_m68k2}
+     (nil))
+(insn 62 173 174 6 (set (reg/v:SI 6 %d6 [orig:65 len ] [65])
+        (and:SI (reg/v:SI 6 %d6 [orig:65 len ] [65])
+            (reg:SI 0 %d0 [107]))) 270 {andsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [107])
+        (nil)))
+(insn 174 62 63 6 (set (reg:SI 0 %d0 [orig:56 _78 ] [56])
+        (reg:SI 2 %d2 [orig:56 _78 ] [56])) 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg:SI 2 %d2 [orig:56 _78 ] [56])
+        (nil)))
+(insn 63 174 64 6 (set (reg:SI 0 %d0 [orig:56 _78 ] [56])
+        (ashift:SI (reg:SI 0 %d0 [orig:56 _78 ] [56])
+            (const_int 2 [0x2]))) 372 {ashlsi3}
+     (nil))
+(note 64 63 177 6 NOTE_INSN_DELETED)
+(insn 177 64 65 6 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])) 67 {*movsi_m68k2}
+     (nil))
+(insn 65 177 176 6 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (plus:SI (plus:SI (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+                (reg:SI 0 %d0 [orig:77 _84 ] [77]))
+            (const_int 4 [0x4]))) 475 {*lea_indexed_disp}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:77 _84 ] [77])
+        (nil)))
+(insn 176 65 66 6 (set (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])
+        (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])) 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (nil)))
+(code_label 66 176 67 7 2 (nil) [1 uses])
+(note 67 66 178 7 [bb 7] NOTE_INSN_BASIC_BLOCK)
+(insn 178 67 68 7 (set (reg:SI 0 %d0 [111])
+        (const_int 2 [0x2])) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 67 {*movsi_m68k2}
+     (nil))
+(jump_insn 68 178 69 7 (set (pc)
+        (if_then_else (eq (reg/v:SI 6 %d6 [orig:65 len ] [65])
+                (reg:SI 0 %d0 [111]))
+            (label_ref:SI 81)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 8 {cbranchsi4_insn}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [111])
+        (int_list:REG_BR_PROB 268435462 (nil)))
+ -> 81)
+(note 69 68 179 8 [bb 8] NOTE_INSN_BASIC_BLOCK)
+(insn 179 69 70 8 (set (reg:SI 0 %d0 [112])
+        (const_int 3 [0x3])) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 67 {*movsi_m68k2}
+     (nil))
+(jump_insn 70 179 71 8 (set (pc)
+        (if_then_else (eq (reg/v:SI 6 %d6 [orig:65 len ] [65])
+                (reg:SI 0 %d0 [112]))
+            (label_ref 76)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 8 {cbranchsi4_insn}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [112])
+        (int_list:REG_BR_PROB 357913950 (nil)))
+ -> 76)
+(note 71 70 180 9 [bb 9] NOTE_INSN_BASIC_BLOCK)
+(insn 180 71 72 9 (set (reg:SI 0 %d0 [113])
+        (const_int 1 [0x1])) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 67 {*movsi_m68k2}
+     (nil))
+(jump_insn 72 180 157 9 (set (pc)
+        (if_then_else (eq (reg/v:SI 6 %d6 [orig:65 len ] [65])
+                (reg:SI 0 %d0 [113]))
+            (label_ref:SI 86)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":95:5 8 {cbranchsi4_insn}
+     (expr_list:REG_DEAD (reg/v:SI 6 %d6 [orig:65 len ] [65])
+        (expr_list:REG_DEAD (reg:SI 0 %d0 [113])
+            (int_list:REG_BR_PROB 536870918 (nil))))
+ -> 86)
+(note 157 72 158 10 [bb 10] NOTE_INSN_BASIC_BLOCK)
+(jump_insn 158 157 159 10 (set (pc)
+        (label_ref 97)) 444 {jump}
+     (nil)
+ -> 97)
+(barrier 159 158 76)
+(code_label 76 159 77 11 5 (nil) [1 uses])
+(note 77 76 181 11 [bb 11] NOTE_INSN_BASIC_BLOCK)
+(insn 181 77 199 11 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":98:4 67 {*movsi_m68k2}
+     (nil))
+(insn 199 181 200 11 (set (reg:SI 0 %d0 [orig:79 k_24 ] [79])
+        (const_int 0 [0])) "../libstdc++-v3/libsupc++/hash_bytes.cc":98:4 63 {*movsi_const0_68000_10}
+     (nil))
+(insn 200 199 79 11 (set (strict_low_part (reg:QI 0 %d0 [orig:79 k_24+3 ] [79]))
+        (mem:QI (plus:SI (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+                (const_int 2 [0x2])) [0 MEM[(const char *)buf_53 + 2B]+0 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":98:4 76 {*m68k.md:1336}
+     (expr_list:REG_DEAD (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (nil)))
+(insn 79 200 80 11 (set (reg:SI 0 %d0 [orig:80 _4 ] [80])
+        (ashift:SI (reg:SI 0 %d0 [orig:79 k_24 ] [79])
+            (const_int 16 [0x10]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":99:12 370 {ashlsi_16}
+     (nil))
+(insn 80 79 81 11 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (xor:SI (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+            (reg:SI 0 %d0 [orig:80 _4 ] [80]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":99:7 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:80 _4 ] [80])
+        (nil)))
+(code_label 81 80 82 12 4 (nil) [1 uses])
+(note 82 81 182 12 [bb 12] NOTE_INSN_BASIC_BLOCK)
+(insn 182 82 197 12 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":102:4 67 {*movsi_m68k2}
+     (nil))
+(insn 197 182 198 12 (set (reg:SI 0 %d0 [orig:81 k_26 ] [81])
+        (const_int 0 [0])) "../libstdc++-v3/libsupc++/hash_bytes.cc":102:4 63 {*movsi_const0_68000_10}
+     (nil))
+(insn 198 197 84 12 (set (strict_low_part (reg:QI 0 %d0 [orig:81 k_26+3 ] [81]))
+        (mem:QI (plus:SI (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+                (const_int 1 [0x1])) [0 MEM[(const char *)buf_53 + 1B]+0 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":102:4 76 {*m68k.md:1336}
+     (expr_list:REG_DEAD (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (nil)))
+(insn 84 198 85 12 (set (reg:SI 0 %d0 [orig:82 _7 ] [82])
+        (ashift:SI (reg:SI 0 %d0 [orig:81 k_26 ] [81])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":103:12 372 {ashlsi3}
+     (nil))
+(insn 85 84 86 12 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (xor:SI (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+            (reg:SI 0 %d0 [orig:82 _7 ] [82]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":103:7 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:82 _7 ] [82])
+        (nil)))
+(code_label 86 85 87 13 6 (nil) [1 uses])
+(note 87 86 183 13 [bb 13] NOTE_INSN_BASIC_BLOCK)
+(insn 183 87 195 13 (set (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 44 [0x2c])) [4 %sfp+-8 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":106:4 67 {*movsi_m68k2}
+     (nil))
+(insn 195 183 196 13 (set (reg:SI 0 %d0 [orig:83 k_28 ] [83])
+        (const_int 0 [0])) "../libstdc++-v3/libsupc++/hash_bytes.cc":106:4 63 {*movsi_const0_68000_10}
+     (nil))
+(insn 196 195 89 13 (set (strict_low_part (reg:QI 0 %d0 [orig:83 k_28+3 ] [83]))
+        (mem:QI (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64]) [0 *buf_53+0 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":106:4 76 {*m68k.md:1336}
+     (expr_list:REG_DEAD (reg/v/f:SI 8 %a0 [orig:64 ptr ] [64])
+        (nil)))
+(insn 89 196 90 13 (set (reg/v:SI 0 %d0 [orig:45 hash ] [45])
+        (xor:SI (reg:SI 0 %d0 [orig:83 k_28 ] [83])
+            (reg/v:SI 7 %d7 [orig:52 hash ] [52]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":107:7 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (nil)))
+(insn 90 89 91 13 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (const_int 1540483477 [0x5bd1e995])) "../libstdc++-v3/libsupc++/hash_bytes.cc":108:7 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 4 [0x4])
+        (nil)))
+(insn 91 90 93 13 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (reg/v:SI 0 %d0 [orig:45 hash ] [45])) "../libstdc++-v3/libsupc++/hash_bytes.cc":108:7 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v:SI 0 %d0 [orig:45 hash ] [45])
+        (expr_list:REG_ARGS_SIZE (const_int 8 [0x8])
+            (nil))))
+(call_insn/u 93 91 94 13 (set (reg:SI 0 %d0)
+        (call (mem:QI (reg/f:SI 14 %a6 [90]) [0  S1 A8])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":108:7 460 {*non_symbolic_call_value}
+     (expr_list:REG_CALL_DECL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+        (expr_list:REG_EH_REGION (const_int -2147483648 [0xffffffff80000000])
+            (nil)))
+    (expr_list (use (mem:SI (plus:SI (reg/f:SI 15 %sp)
+                    (scratch:SI)) [0  S4 A16]))
+        (nil)))
+(insn 94 93 95 13 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":108:7 169 {*addsi3_internal}
+     (expr_list:REG_ARGS_SIZE (const_int 0 [0])
+        (nil)))
+(insn 95 94 97 13 (set (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (reg:SI 0 %d0 [orig:97 hash ] [97])) "../libstdc++-v3/libsupc++/hash_bytes.cc":108:7 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg:SI 0 %d0 [orig:97 hash ] [97])
+        (nil)))
+(code_label 97 95 98 14 7 (nil) [1 uses])
+(note 98 97 184 14 [bb 14] NOTE_INSN_BASIC_BLOCK)
+(insn 184 98 186 14 (set (reg:SI 0 %d0 [orig:40 _10 ] [40])
+        (reg/v:SI 7 %d7 [orig:52 hash ] [52])) "../libstdc++-v3/libsupc++/hash_bytes.cc":112:18 67 {*movsi_m68k2}
+     (nil))
+(insn 186 184 99 14 (set (reg:SI 1 %d1 [118])
+        (const_int 13 [0xd])) "../libstdc++-v3/libsupc++/hash_bytes.cc":112:18 67 {*movsi_m68k2}
+     (nil))
+(insn 99 186 100 14 (set (reg:SI 0 %d0 [orig:40 _10 ] [40])
+        (lshiftrt:SI (reg:SI 0 %d0 [orig:40 _10 ] [40])
+            (reg:SI 1 %d1 [118]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":112:18 399 {lshrsi3}
+     (expr_list:REG_DEAD (reg:SI 1 %d1 [118])
+        (nil)))
+(insn 100 99 101 14 (set (reg/v:SI 0 %d0 [orig:46 hash ] [46])
+        (xor:SI (reg:SI 0 %d0 [orig:40 _10 ] [40])
+            (reg/v:SI 7 %d7 [orig:52 hash ] [52]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":112:10 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg/v:SI 7 %d7 [orig:52 hash ] [52])
+        (nil)))
+(insn 101 100 102 14 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (const_int 1540483477 [0x5bd1e995])) "../libstdc++-v3/libsupc++/hash_bytes.cc":113:10 67 {*movsi_m68k2}
+     (expr_list:REG_ARGS_SIZE (const_int 4 [0x4])
+        (nil)))
+(insn 102 101 104 14 (set (mem:SI (pre_dec:SI (reg/f:SI 15 %sp)) [3  S4 A16])
+        (reg/v:SI 0 %d0 [orig:46 hash ] [46])) "../libstdc++-v3/libsupc++/hash_bytes.cc":113:10 67 {*movsi_m68k2}
+     (expr_list:REG_DEAD (reg/v:SI 0 %d0 [orig:46 hash ] [46])
+        (expr_list:REG_ARGS_SIZE (const_int 8 [0x8])
+            (nil))))
+(call_insn/u 104 102 105 14 (set (reg:SI 0 %d0)
+        (call (mem:QI (reg/f:SI 14 %a6 [90]) [0  S1 A8])
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":113:10 460 {*non_symbolic_call_value}
+     (expr_list:REG_DEAD (reg/f:SI 14 %a6 [90])
+        (expr_list:REG_CALL_DECL (symbol_ref:SI ("__mulsi3") [flags 0x41]  <function_decl 0x11223d800 __mulsi3>)
+            (expr_list:REG_EH_REGION (const_int -2147483648 [0xffffffff80000000])
+                (nil))))
+    (expr_list (use (mem:SI (plus:SI (reg/f:SI 15 %sp)
+                    (scratch:SI)) [0  S4 A16]))
+        (nil)))
+(insn 105 104 106 14 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":113:10 169 {*addsi3_internal}
+     (expr_list:REG_ARGS_SIZE (const_int 0 [0])
+        (nil)))
+(note 106 105 187 14 NOTE_INSN_DELETED)
+(insn 187 106 189 14 (set (reg:SI 1 %d1 [orig:41 _11 ] [41])
+        (reg:SI 0 %d0 [orig:98 hash_32 ] [98])) "../libstdc++-v3/libsupc++/hash_bytes.cc":114:18 67 {*movsi_m68k2}
+     (nil))
+(insn 189 187 108 14 (set (reg:SI 2 %d2 [120])
+        (const_int 15 [0xf])) "../libstdc++-v3/libsupc++/hash_bytes.cc":114:18 67 {*movsi_m68k2}
+     (nil))
+(insn 108 189 109 14 (set (reg:SI 1 %d1 [orig:41 _11 ] [41])
+        (lshiftrt:SI (reg:SI 1 %d1 [orig:41 _11 ] [41])
+            (reg:SI 2 %d2 [120]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":114:18 399 {lshrsi3}
+     (expr_list:REG_DEAD (reg:SI 2 %d2 [120])
+        (nil)))
+(note 109 108 114 14 NOTE_INSN_DELETED)
+(insn 114 109 115 14 (set (reg/i:SI 0 %d0)
+        (xor:SI (reg:SI 0 %d0 [orig:98 hash_32 ] [98])
+            (reg:SI 1 %d1 [orig:41 _11 ] [41]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 1 %d1 [orig:41 _11 ] [41])
+        (nil)))
+(insn 115 114 204 14 (use (reg/i:SI 0 %d0)) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 -1
+     (nil))
+(note 204 115 205 14 NOTE_INSN_EPILOGUE_BEG)
+(insn 205 204 206 14 (parallel [
+            (set (reg/f:SI 15 %sp)
+                (plus:SI (reg/f:SI 15 %sp)
+                    (const_int 44 [0x2c])))
+            (set (reg:SI 2 %d2)
+                (mem/c:SI (reg/f:SI 15 %sp) [5  S4 A16]))
+            (set (reg:SI 3 %d3)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 4 [0x4])) [5  S4 A16]))
+            (set (reg:SI 4 %d4)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 8 [0x8])) [5  S4 A16]))
+            (set (reg:SI 5 %d5)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 12 [0xc])) [5  S4 A16]))
+            (set (reg:SI 6 %d6)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 16 [0x10])) [5  S4 A16]))
+            (set (reg:SI 7 %d7)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 20 [0x14])) [5  S4 A16]))
+            (set (reg:SI 10 %a2)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 24 [0x18])) [5  S4 A16]))
+            (set (reg:SI 11 %a3)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 28 [0x1c])) [5  S4 A16]))
+            (set (reg:SI 12 %a4)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 32 [0x20])) [5  S4 A16]))
+            (set (reg:SI 13 %a5)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 36 [0x24])) [5  S4 A16]))
+            (set (reg:SI 14 %a6)
+                (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 40 [0x28])) [5  S4 A16]))
+        ]) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 -1
+     (nil))
+(insn 206 205 207 14 (unspec_volatile [
+            (const_int 0 [0])
+        ] 0) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 -1
+     (nil))
+(insn 207 206 208 14 (set (reg/f:SI 15 %sp)
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 8 [0x8]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 -1
+     (nil))
+(jump_insn 208 207 209 14 (return) "../libstdc++-v3/libsupc++/hash_bytes.cc":116:3 -1
+     (nil)
+ -> return)
+(barrier 209 208 162)
+(note 162 209 0 NOTE_INSN_DELETED)
+
+;; Function std::_Fnv_hash_bytes (_ZSt15_Fnv_hash_bytesPKvmm, funcdef_no=5, decl_uid=2121, cgraph_uid=6, symbol_order=5)
+
+
+
+
+EMERGENCY DUMP:
+
+
+
+std::_Fnv_hash_bytes
+
+Dataflow summary:
+;;  fully invalidated by EH 	 0 [%d0] 1 [%d1] 8 [%a0] 9 [%a1] 16 [%fp0] 17 [%fp1] 18 [%fp2] 19 [%fp3] 20 [%fp4] 21 [%fp5] 22 [%fp6] 23 [%fp7]
+;;  hardware regs used 	 15 [%sp]
+;;  regular block artificial uses 	 15 [%sp]
+;;  eh block artificial uses 	 15 [%sp] 24 [%argptr]
+;;  entry block defs 	 0 [%d0] 1 [%d1] 2 [%d2] 3 [%d3] 8 [%a0] 9 [%a1] 15 [%sp]
+;;  exit block uses 	 0 [%d0] 2 [%d2] 3 [%d3] 15 [%sp]
+;;  regs ever live 	 0 [%d0] 1 [%d1] 2 [%d2] 3 [%d3] 8 [%a0] 9 [%a1] 15 [%sp]
+;;  ref usage 	r0={5d,9u,4e} r1={14d,14u} r2={4d,4u} r3={3d,3u} r8={3d,3u} r9={4d,2u} r15={5d,15u} r24={2e} 
+;;    total ref usage 94{38d,50u,6e} in 32{32 regular + 0 call} insns.
+(note 1 0 8 NOTE_INSN_DELETED)
+(note 8 1 67 2 [bb 2] NOTE_INSN_BASIC_BLOCK)
+(insn/f 67 8 68 2 (set (mem/c:SI (pre_dec:SI (reg/f:SI 15 %sp)) [5  S4 A16])
+        (reg:SI 3 %d3)) "../libstdc++-v3/libsupc++/hash_bytes.cc":124:3 -1
+     (expr_list:REG_DEAD (reg:SI 3 %d3)
+        (nil)))
+(insn/f 68 67 69 2 (set (mem/c:SI (pre_dec:SI (reg/f:SI 15 %sp)) [5  S4 A16])
+        (reg:SI 2 %d2)) "../libstdc++-v3/libsupc++/hash_bytes.cc":124:3 -1
+     (expr_list:REG_DEAD (reg:SI 2 %d2)
+        (nil)))
+(note 69 68 2 2 NOTE_INSN_PROLOGUE_END)
+(insn 2 69 5 2 (set (reg/v/f:SI 8 %a0 [orig:36 ptr ] [36])
+        (mem/f/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 12 [0xc])) [2 ptr+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":124:3 67 {*movsi_m68k2}
+     (expr_list:REG_EQUIV (mem/f/c:SI (plus:SI (reg/f:SI 24 %argptr)
+                (const_int 8 [0x8])) [2 ptr+0 S4 A16])
+        (nil)))
+(note 5 2 10 2 NOTE_INSN_FUNCTION_BEG)
+(jump_insn 10 5 11 2 (set (pc)
+        (if_then_else (eq (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                        (const_int 16 [0x10])) [1 len+0 S4 A16])
+                (const_int 0 [0]))
+            (label_ref:SI 48)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":126:12 discrim 1 8 {cbranchsi4_insn}
+     (int_list:REG_BR_PROB 118111604 (nil))
+ -> 48)
+(note 11 10 54 3 [bb 3] NOTE_INSN_BASIC_BLOCK)
+(insn 54 11 57 3 (set (reg:SI 9 %a1 [52])
+        (plus:SI (reg/f:SI 15 %sp)
+            (const_int 16 [0x10]))) 169 {*addsi3_internal}
+     (expr_list:REG_EQUAL (plus:SI (reg/f:SI 24 %argptr)
+            (const_int 12 [0xc]))
+        (nil)))
+(insn 57 54 12 3 (set (reg/f:SI 2 %d2 [orig:34 _15 ] [34])
+        (reg/v/f:SI 8 %a0 [orig:36 ptr ] [36])) 67 {*movsi_m68k2}
+     (nil))
+(insn 12 57 6 3 (set (reg/f:SI 2 %d2 [orig:34 _15 ] [34])
+        (plus:SI (reg/f:SI 2 %d2 [orig:34 _15 ] [34])
+            (mem/c:SI (post_inc:SI (reg:SI 9 %a1 [52])) [1 len+0 S4 A16]))) 169 {*addsi3_internal}
+     (expr_list:REG_INC (reg:SI 9 %a1 [52])
+        (nil)))
+(insn 6 12 34 3 (set (reg/v:SI 0 %d0 [orig:35 <retval> ] [35])
+        (mem/c:SI (post_inc:SI (reg:SI 9 %a1 [52])) [1 hash+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":126:12 discrim 1 67 {*movsi_m68k2}
+     (expr_list:REG_UNUSED (reg:SI 9 %a1 [52])
+        (expr_list:REG_INC (reg:SI 9 %a1 [52])
+            (nil))))
+(code_label 34 6 13 4 22 (nil) [1 uses])
+(note 13 34 60 4 [bb 4] NOTE_INSN_BASIC_BLOCK)
+(insn 60 13 15 4 (set (reg:QI 1 %d1 [orig:40 MEM[(const char *)cptr_9 + 4294967295B] ] [40])
+        (mem:QI (post_inc:SI (reg/v/f:SI 8 %a0 [orig:36 ptr ] [36])) [0 MEM[(const char *)cptr_9 + 4294967295B]+0 S1 A8])) "../libstdc++-v3/libsupc++/hash_bytes.cc":128:10 74 {*m68k.md:1316}
+     (expr_list:REG_INC (reg/v/f:SI 8 %a0 [orig:36 ptr ] [36])
+        (nil)))
+(insn 15 60 16 4 (set (reg:HI 1 %d1 [orig:40 MEM[(const char *)cptr_9 + 4294967295B]+-1 ] [40])
+        (sign_extend:HI (reg:QI 1 %d1 [orig:40 MEM[(const char *)cptr_9 + 4294967295B] ] [40]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":128:10 109 {extendqihi2}
+     (nil))
+(insn 16 15 17 4 (set (reg:SI 1 %d1 [orig:39 _10 ] [39])
+        (sign_extend:SI (reg:HI 1 %d1 [orig:40 MEM[(const char *)cptr_9 + 4294967295B]+-1 ] [40]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":128:10 108 {*68k_extendhisi2}
+     (nil))
+(insn 17 16 62 4 (set (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+        (xor:SI (reg/v:SI 0 %d0 [orig:35 <retval> ] [35])
+            (reg:SI 1 %d1 [orig:39 _10 ] [39]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":128:7 296 {xorsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 1 %d1 [orig:39 _10 ] [39])
+        (nil)))
+(insn 62 17 64 4 (set (reg:SI 1 %d1 [42])
+        (reg/v:SI 0 %d0 [orig:33 hash ] [33])) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 67 {*movsi_m68k2}
+     (nil))
+(insn 64 62 19 4 (set (reg:SI 3 %d3 [57])
+        (const_int 15 [0xf])) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 67 {*movsi_m68k2}
+     (nil))
+(insn 19 64 21 4 (set (reg:SI 1 %d1 [42])
+        (ashift:SI (reg:SI 1 %d1 [42])
+            (reg:SI 3 %d3 [57]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 372 {ashlsi3}
+     (expr_list:REG_DEAD (reg:SI 3 %d3 [57])
+        (nil)))
+(insn 21 19 22 4 (set (reg:SI 1 %d1 [43])
+        (plus:SI (reg:SI 1 %d1 [42])
+            (reg/v:SI 0 %d0 [orig:33 hash ] [33]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 169 {*addsi3_internal}
+     (expr_list:REG_EQUAL (mult:SI (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+            (const_int 32769 [0x8001]))
+        (nil)))
+(insn 22 21 24 4 (set (reg:SI 1 %d1 [44])
+        (ashift:SI (reg:SI 1 %d1 [43])
+            (const_int 2 [0x2]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 372 {ashlsi3}
+     (nil))
+(insn 24 22 25 4 (set (reg:SI 1 %d1 [45])
+        (minus:SI (reg:SI 1 %d1 [44])
+            (reg/v:SI 0 %d0 [orig:33 hash ] [33]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 196 {subsi3}
+     (expr_list:REG_EQUAL (mult:SI (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+            (const_int 131075 [0x20003]))
+        (nil)))
+(insn 25 24 27 4 (set (reg:SI 1 %d1 [46])
+        (ashift:SI (reg:SI 1 %d1 [45])
+            (const_int 3 [0x3]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 372 {ashlsi3}
+     (nil))
+(insn 27 25 28 4 (set (reg:SI 1 %d1 [47])
+        (plus:SI (reg:SI 1 %d1 [46])
+            (reg/v:SI 0 %d0 [orig:33 hash ] [33]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 169 {*addsi3_internal}
+     (expr_list:REG_EQUAL (mult:SI (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+            (const_int 1048601 [0x100019]))
+        (nil)))
+(insn 28 27 30 4 (set (reg:SI 1 %d1 [48])
+        (ashift:SI (reg:SI 1 %d1 [47])
+            (const_int 3 [0x3]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 372 {ashlsi3}
+     (nil))
+(insn 30 28 31 4 (set (reg:SI 1 %d1 [49])
+        (plus:SI (reg:SI 1 %d1 [48])
+            (reg/v:SI 0 %d0 [orig:33 hash ] [33]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 169 {*addsi3_internal}
+     (expr_list:REG_EQUAL (mult:SI (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+            (const_int 8388809 [0x8000c9]))
+        (nil)))
+(insn 31 30 33 4 (set (reg:SI 1 %d1 [50])
+        (plus:SI (reg:SI 1 %d1 [49])
+            (reg:SI 1 %d1 [49]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 169 {*addsi3_internal}
+     (nil))
+(insn 33 31 35 4 (set (reg/v:SI 0 %d0 [orig:35 <retval> ] [35])
+        (plus:SI (reg/v:SI 0 %d0 [orig:33 hash ] [33])
+            (reg:SI 1 %d1 [50]))) "../libstdc++-v3/libsupc++/hash_bytes.cc":129:7 169 {*addsi3_internal}
+     (expr_list:REG_DEAD (reg:SI 1 %d1 [50])
+        (nil)))
+(jump_insn 35 33 51 4 (set (pc)
+        (if_then_else (ne (reg/v/f:SI 8 %a0 [orig:36 ptr ] [36])
+                (reg/f:SI 2 %d2 [orig:34 _15 ] [34]))
+            (label_ref:SI 34)
+            (pc))) "../libstdc++-v3/libsupc++/hash_bytes.cc":126:12 discrim 1 8 {cbranchsi4_insn}
+     (int_list:REG_BR_PROB 955630228 (nil))
+ -> 34)
+(note 51 35 52 5 [bb 5] NOTE_INSN_BASIC_BLOCK)
+(jump_insn 52 51 53 5 (set (pc)
+        (label_ref 40)) 444 {jump}
+     (nil)
+ -> 40)
+(barrier 53 52 48)
+(code_label 48 53 47 6 23 (nil) [1 uses])
+(note 47 48 7 6 [bb 6] NOTE_INSN_BASIC_BLOCK)
+(insn 7 47 40 6 (set (reg/v:SI 0 %d0 [orig:35 <retval> ] [35])
+        (mem/c:SI (plus:SI (reg/f:SI 15 %sp)
+                (const_int 20 [0x14])) [1 hash+0 S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":126:12 discrim 1 67 {*movsi_m68k2}
+     (nil))
+(code_label 40 7 43 7 20 (nil) [1 uses])
+(note 43 40 42 7 [bb 7] NOTE_INSN_BASIC_BLOCK)
+(insn 42 43 70 7 (use (reg/i:SI 0 %d0)) "../libstdc++-v3/libsupc++/hash_bytes.cc":132:3 -1
+     (nil))
+(note 70 42 71 7 NOTE_INSN_EPILOGUE_BEG)
+(insn 71 70 72 7 (set (reg:SI 2 %d2)
+        (mem/c:SI (post_inc:SI (reg/f:SI 15 %sp)) [5  S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":132:3 -1
+     (nil))
+(insn 72 71 73 7 (set (reg:SI 3 %d3)
+        (mem/c:SI (post_inc:SI (reg/f:SI 15 %sp)) [5  S4 A16])) "../libstdc++-v3/libsupc++/hash_bytes.cc":132:3 -1
+     (nil))
+(insn 73 72 74 7 (unspec_volatile [
+            (const_int 0 [0])
+        ] 0) "../libstdc++-v3/libsupc++/hash_bytes.cc":132:3 -1
+     (nil))
+(jump_insn 74 73 75 7 (return) "../libstdc++-v3/libsupc++/hash_bytes.cc":132:3 -1
+     (nil)
+ -> return)
+(barrier 75 74 56)
+(note 56 75 0 NOTE_INSN_DELETED)

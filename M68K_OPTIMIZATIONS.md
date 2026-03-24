@@ -393,7 +393,7 @@ while (count--) {
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses share a common base pointer. Verifies reordering safety using GCC's alias oracle. Runs before store-merging at `-O1` and above (including `-Os`).
 
-A pre-RA increment normalization pass (`m68k-reorder-incr`) moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. This enables sequential access patterns for downstream auto-increment conversion. Runs after scheduling, before IRA.
+A pre-RA pass (`m68k-reorder-incr`) performs two transformations: (1) moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive; (2) detects sequential base+offset memory accesses on the same hard register and synthesizes a `lea` to a pseudo with sequential offsets and an `addq` increment, enabling the downstream `opt_autoinc` pass to convert them to POST_INC. Combined insns with multiple MEMs at consecutive offsets (e.g., from `combine`) are split before conversion. Runs after scheduling, before IRA.
 
 **Passes:** `m68k-reorder-mem` (new GIMPLE pass), `m68k-reorder-incr` (new pre-RA RTL pass)
 
@@ -441,11 +441,46 @@ move.l  (%a0)+,(%a1)+      ; stores 1+2 merged
 move.l  (%a0)+,(%a1)+      ; stores 3+4 merged
 ```
 
+Sequential access detection (stack clears followed by a function call and reads):
+
+```c
+struct large_struct { short a, b, c, d, e, f; };
+int test_clear_and_read_struct(void(*f)(struct large_struct*)) {
+    struct large_struct s = {};
+    f(&s);
+    return s.a + s.b + s.c + s.d + s.e + s.f;
+}
+```
+```asm
+; Before: base+offset addressing (no autoinc possible)
+clr.w   (%sp)
+clr.w   2(%sp)
+clr.w   4(%sp)
+...
+move.w  (%sp),%d0
+add.w   2(%sp),%d0
+add.w   4(%sp),%d0
+...
+
+; After: reorder-incr synthesizes lea + sequential → opt_autoinc → POST_INC
+lea     (%sp),%a0
+clr.w   (%a0)+
+clr.w   (%a0)+
+clr.w   (%a0)+
+...
+lea     (%sp),%a0
+move.w  (%a0)+,%d0
+add.w   (%a0)+,%d0
+add.w   (%a0)+,%d0
+...
+```
+
 ### Test cases
 
 - `test_clear_struct_unorderred()` — out-of-order field clears → reordered → merged
 - `test_clear_struct()` — already-ordered clears (no reorder needed, just merge)
 - `test_fire_flicker_callback()` — unrolled copy to constant address → base normalization → full merge
+- `test_clear_and_read_struct()` — sequential access detection → lea + POST_INC for both clears and reads
 
 ---
 
@@ -729,7 +764,7 @@ Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. 
 
 Disable with: `-mno-m68k-btst-extract`
 
-**Patterns:** `cstore_btst` `define_insn`, `define_peephole2`
+**Patterns:** `cstore_btst` `define_insn`, `*cbranchsi4_btst_shifted_hi` `define_insn`, `define_peephole2`
 
 **Code:** `gcc/config/m68k/m68k.md`
 

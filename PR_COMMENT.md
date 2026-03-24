@@ -76,7 +76,9 @@ Disable with: `-mno-m68k-doloop`
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses share a common base pointer. Runs at `-O1` and above (including `-Os`).
 
-Disable with: `-mno-m68k-reorder-mem`
+The `m68k-reorder-incr` pass also detects sequential base+offset accesses and synthesizes `lea` + sequential offsets for POST_INC conversion. Combined insns with multiple MEMs are split before conversion.
+
+Disable with: `-mno-m68k-reorder-mem` (reorder), `-mno-m68k-autoinc` (normalization)
 
 **Passes:** `m68k-reorder-mem` (new GIMPLE pass), `m68k-reorder-incr` (new pre-RA RTL pass)
 
@@ -168,7 +170,7 @@ Combines adjacent small memory accesses into larger ones (e.g. two `move.w` into
 
 ### Bit Extraction
 
-Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles while `btst` is constant time. For unsigned results, `neg.b` converts `sne` to 0/1. Disabled on 68020+ where `bfextu`/`bfexts` handle this. A dedicated pattern (`*cbranchsi4_btst_shifted_hi`) handles `-mshort` mode where combine produces shifted HImode bit-tests instead of the canonical `zero_extract` form.
+Replaces shift+mask for single-bit extraction with `btst`+`sne` on 68000/68010. Shifts cost 6+2N cycles while `btst` is constant time. Disabled on 68020+ where `bfextu`/`bfexts` handle this. `*cbranchsi4_btst_shifted_hi` handles `-mshort` shifted HImode bit-tests.
 
 Disable with: `-mno-m68k-btst-extract`
 
@@ -212,7 +214,7 @@ Targets 68040 pipeline stalls and 68060 dual-issue pairing without affecting 680
 
 ### POST_INC Straight-Line Guard (68040)
 
-On 68040, consecutive POST_INC accesses stall 1 cycle per instruction. The `opt_autoinc` pass skips conversion for straight-line consecutive memory accesses on 68040, using offset addressing instead. Loop autoincrements are unaffected. The 68060 does not stall (POST_INC is a zero-stall producer per MC68060UM §4.2).
+On 68040, consecutive POST_INC accesses stall 1 cycle per instruction. The `opt_autoinc` pass skips conversion for straight-line sequences on 68040. Loop autoincrements are unaffected. 68060 does not stall (zero-stall producer per MC68060UM §4.2).
 
 **Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`
 
@@ -226,7 +228,7 @@ On 68040+, `and.l #7,%d0` (1 cycle) is faster than `moveq #7,%d1` + `and.l %d1,%
 
 ### 68060 Scheduling Automaton
 
-New `m68060.md` models dual-issue pipelines (pOEP + sOEP) so `sched2` can reorder instructions for pairing. Classifies insns by superscalar dispatch class — `pOEP|sOEP` (simple ALU, moves, shifts) can pair; indexed EA and `pOEP-only` (mul, div, branches, `dbra`) force single-issue. FPU instructions allow integer sOEP overlap. Issue rate is 2. Only `sched2` (post-RA) is enabled — `sched1` would break autoincrements. `-msched=68060` enables scheduling independently of tuning target.
+New `m68060.md` models dual-issue pipelines (pOEP + sOEP) so `sched2` can reorder instructions for pairing. `pOEP|sOEP` insns (ALU, moves, shifts) can pair; indexed EA and `pOEP-only` (mul, div, branches, `dbra`) force single-issue. FPU allows integer sOEP overlap. Issue rate is 2. Only `sched2` enabled — `sched1` would break autoincrements. `-msched=68060` enables independently of tuning target.
 
 **Code:** `gcc/config/m68k/m68060.md`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.opt`
 

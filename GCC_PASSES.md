@@ -430,7 +430,7 @@ Main optimization pipeline run on each function.
 | 7.46 | `pass_live_range_shrinkage` | RTL | Shrink live ranges | - | Reduce register pressure |
 | 7.47 | `pass_sched` | RTL | Instruction scheduling 1 | `pass_sched2` | Pre-RA scheduling |
 | 7.48a | **`m68k_pass_opt_autoinc`** | RTL | **Pre-RA auto-increment** | m68k | **Multi-step, cross-BB, reposition on pseudos** |
-| 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization** | m68k | **Move increments past negative-offset accesses** |
+| 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization + sequential access** | m68k | **Move increments past negative-offset accesses; detect sequential MEMs and synthesize lea + offsets for POST_INC** |
 | 7.48 | `pass_rtl_avoid_store_forwarding` | RTL | Avoid store forwarding | - | Prevent store-to-load |
 | 7.49 | `pass_early_remat` | RTL | Early rematerialization | - | Recompute vs reload |
 | 7.49a | **`m68k_pass_break_false_dep`** | RTL | **Break false partial-write deps** | m68k | **Insert clobber before bfins/strict_low_part sequences** |
@@ -477,8 +477,8 @@ Main optimization pipeline run on each function.
 | 9.21 | `pass_leaf_regs` | RTL | Leaf function registers | - | Optimize leaf functions |
 | 9.22 | `pass_split_before_sched2` | RTL | Pre-sched2 split | - | Prepare for scheduling |
 | 9.22a | **`m68k_pass_elim_andi`** | RTL | **m68k ANDI elimination** | - | **Hoist `moveq #0` for zero-extend** |
-| 9.22b | **`m68k_pass_highword_opt`** | RTL | **m68k highword optimization** | - | **Word packing, swap+move.w** |
 | 9.23 | `pass_sched2` | RTL | **Instruction scheduling 2** | - | **Post-RA scheduling** |
+| 9.23a | **`m68k_pass_highword_opt`** | RTL | **m68k highword optimization** | - | **Word packing, swap+move.w** |
 | 9.24 | `pass_stack_regs` | RTL | Stack register allocation | - | x87 FPU stack (not m68k FPU) |
 | 9.25 | `pass_split_before_regstack` | RTL | Pre-regstack split | - | For x87 |
 | 9.26 | `pass_stack_regs_run` | RTL | Run stack regs | - | Execute stack allocation |
@@ -600,23 +600,41 @@ muls.w  #320,d0
 
 #### `m68k_pass_reorder_incr`
 
-**Location**: After `m68k_pass_opt_autoinc` (7.48a) in Phase 7
+**Location**: Before `m68k_pass_opt_autoinc` (7.48a) in Phase 7
 **Source**: `gcc/config/m68k/m68k-pass-memreorder.cc`, `gcc/config/m68k/m68k-util.cc`
 
-**Purpose**: Pre-RA increment normalization. Moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. This enables sequential access patterns for downstream auto-increment conversion. Runs after scheduling, before IRA.
+**Purpose**: Pre-RA increment normalization and sequential access detection. (1) Moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. (2) Detects sequential base+offset MEMs on the same register and synthesizes `lea` + sequential offset patterns for downstream POST_INC conversion. Splits combined insns with multiple MEMs at consecutive offsets. Runs after scheduling, before IRA.
 
-**Transformation Example**:
+**Transformation Examples**:
 
 ```asm
-; Before (negative offsets prevent autoinc):
+; Increment normalization — negative offsets to positive:
+; Before:
   addq.l #4,pseudo
   move.l -4(pseudo),d0
   move.l (pseudo),d1
 
-; After (positive sequential offsets):
+; After:
   move.l (pseudo),d0
   move.l 4(pseudo),d1
   addq.l #8,pseudo
+```
+
+```asm
+; Sequential access detection — base+offset to lea + sequential:
+; Before:
+  clr.w   (%a0)
+  clr.w   2(%a0)
+  clr.w   4(%a0)
+  clr.w   6(%a0)
+
+; After (enables opt_autoinc → POST_INC):
+  lea     (%a0),%a1
+  clr.w   (%a1)
+  clr.w   2(%a1)
+  clr.w   4(%a1)
+  clr.w   6(%a1)
+  addq.l  #8,%a1
 ```
 
 #### `m68k_pass_break_false_dep`
@@ -680,7 +698,7 @@ muls.w  #320,d0
 
 #### `m68k_pass_highword_opt`
 
-**Location**: Before `pass_sched2` (9.23), after `m68k_pass_elim_andi` in Phase 9
+**Location**: After `pass_sched2` (9.23), after `m68k_pass_elim_andi` in Phase 9
 **Source**: `gcc/config/m68k/m68k-pass-shortopt.cc`
 
 **Purpose**: Optimize word packing, including `struct { short, short }` construction and combining `andi.l #$ffff` + `ori.l #xxxx0000` sequences.
@@ -711,7 +729,7 @@ muls.w  #320,d0
 | `m68k_pass_canon_scaled_index` (7.29b) | Canonical scaled index | Rewrite 3-reg scaled addresses for LRA |
 | `pass_combine` (7.33) | Instruction combining | `clr d0; move d0,(a0)` → `clr (a0)` |
 | `m68k_pass_opt_autoinc` (7.48a) | Pre-RA auto-increment | Multi-step, cross-BB, reposition on pseudos |
-| `m68k_pass_reorder_incr` (7.48b) | Pre-RA increment normalization | Move increments past negative-offset accesses |
+| `m68k_pass_reorder_incr` (7.48b) | Increment normalization + sequential access | Move increments past negative-offset accesses; synthesize lea + offsets |
 | `m68k_pass_break_false_dep` (7.49a) | Break false partial-write deps | Insert clobber before bfins/strict_low_part |
 | `m68k_pass_break_false_dep_cleanup` (9.0a) | Remove standalone clobbers | Clean up clobbers from 7.49a after RA |
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |
@@ -719,8 +737,8 @@ muls.w  #320,d0
 | `m68k_pass_normalize_autoinc` (9.13a) | LRA decomposition recovery | Reconstruct LRA-decomposed POST_INC |
 | `pass_peephole2` (9.14) | Pattern-based optimization | Store merging, mem-to-mem, areg zero test |
 | `m68k_pass_reorder_for_cc` (9.14a) | Reorder loads for CC | Load tested reg last, elide `tst` |
-| `m68k_pass_highword_opt` (9.19a) | Word packing | `andi.l #$ffff; ori.l` → `swap; move.w` |
 | `m68k_pass_elim_andi` (9.22a) | Hoist zero-extension | `andi.l #255,dn` → hoisted `moveq #0,dn` |
+| `m68k_pass_highword_opt` (9.23a) | Word packing | `andi.l #$ffff; ori.l` → `swap; move.w` |
 | `pass_shorten_branches` (10.12) | Use short branches | `jmp label` → `bra.s label` |
 
 ### Machine Description Patterns
