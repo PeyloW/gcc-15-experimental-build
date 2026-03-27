@@ -321,7 +321,7 @@ extern "C" {
     // Copy count function.
     __attribute__((__always_inline__, optimize("unroll-loops"))) inline
     short *copyn(const short *first, unsigned short count, short *d_first) {
-        #pragma GCC unroll 8
+#pragma GCC unroll 8
         while (count--) {
             *(d_first) = *(first);
             ++d_first; ++first;
@@ -345,7 +345,7 @@ extern "C" {
     void test_copy_palette_16(const short *src) {
         copyn(src, 16, (short*)0xffff8240);
     }
-
+    
     void test_fire_flicker_callback(short g_fire_flickers[8][4], int i) {
         const auto& pal = g_fire_flickers[i & 0x7];
         copyn(pal, 4, reinterpret_cast<short*>(0xffff8240) + 12);
@@ -382,7 +382,7 @@ extern "C" {
             p[i] = 0;
         }
     }
-
+    
     /* test_doloop_simode_bounded - doloop with SImode counter, VRP-bounded
      * Expected: Uses dbra because __builtin_unreachable() constrains n
      * to [1,1000], so VRP proves the iteration count fits in 16 bits and
@@ -394,7 +394,7 @@ extern "C" {
             p[i] = 0;
         }
     }
-
+    
     /* test_doloop_const_large - doloop with large constant count (>65536)
      * Expected: Should NOT use dbra because count exceeds 16-bit limit.
      * The DOLOOP pass should reject this due to iterations > 65536.
@@ -477,7 +477,7 @@ extern "C" {
         s->c = 0;
         s->d = 0;
     }
-
+    
     /* test_clear_struct - clear multiple struct fields
      * Expected for 68000: Single moveq, multiple move.l
      * Expected for 68020+: Multiple clr.l
@@ -489,7 +489,7 @@ extern "C" {
         s->c = 0;
         s->a = 0;
     }
-
+    
     /* test_clear_array_loop - array clearing loop
      * Expected for 68000: moveq hoisted, move.l in loop
      * Expected for 68020+: clr.l in loop
@@ -542,15 +542,15 @@ extern "C" {
     short test_vector(vector_c<short> &vec, int i) {
         return vec[i];
     }
-
+    
     short test_vector_back(vector_c<short> &vec) {
         return vec.back();
     }
-
+    
     short test_vector_emplace_back(vector_c<short> &vec, short a) {
         return vec.emplace_back(a);
     }
-
+    
     /* ==========================================================================
      * ANDI.L #65535 ELIMINATION TEST CASES
      *
@@ -563,7 +563,7 @@ extern "C" {
      *   68000/68010: 4 bytes, 8-16 cycles
      *   68020+: 4 bytes, ~4 cycles
      * ========================================================================== */
-
+    
     /* test_elim_andi_basic - basic andi elimination
      * Expected: moveq #0 inserted before move.w, andi eliminated.
      * Pattern: Load word, decrement, use as index.
@@ -573,7 +573,7 @@ extern "C" {
         val--;
         return p[val];
     }
-
+    
     /* test_elim_andi_multi - multiple word operations
      * Expected: moveq #0 inserted, all andi eliminated.
      * Pattern: Load word, add, shift, mask, use as index.
@@ -584,7 +584,7 @@ extern "C" {
         i &= 0x1ff;    /* and.w - preserves upper bits */
         return p[i];
     }
-
+    
     /* test_elim_andi_loop - andi in loop body
      * Expected: moveq #0 hoisted before definition, saves andi per iteration.
      * This is the highest-value case.
@@ -598,21 +598,21 @@ extern "C" {
         }
         return sum;
     }
-
+    
     /* test_no_elim_muls - should NOT optimize (muls produces 32-bit result)
      * Expected: No optimization, muls clobbers upper bits with meaningful data.
      */
     int test_no_elim_muls(short a, short b) {
         return a * b;  /* muls produces 32-bit result */
     }
-
+    
     /* test_no_elim_ext - should NOT optimize (ext.l sets upper bits)
      * Expected: No optimization, ext.l sign-extends (sets upper bits).
      */
     int test_no_elim_ext(short val) {
         return (int)val;  /* ext.l sign-extends */
     }
-
+    
     /* test_elim_andi_zext - zero_extend is safe
      * Expected: Should optimize - zero_extend clears upper bits like moveq #0.
      */
@@ -621,7 +621,7 @@ extern "C" {
         x += 1;
         return x;
     }
-
+    
     /* test_elim_andi_load - load from memory then use as 32-bit
      * Expected: moveq #0 inserted before load, andi eliminated.
      * Pattern: Load word from memory (pure definition), add, return as 32-bit.
@@ -631,7 +631,7 @@ extern "C" {
         val += 5;                  /* addq.w #5,%d0 - word op */
         return val;                /* needs 32-bit result */
     }
-
+    
     /* test_elim_andi_load2 - two independent loads
      * Expected: Both should use moveq #0 + word ops.
      */
@@ -642,7 +642,7 @@ extern "C" {
         b += 20;
         return a + b;
     }
-
+    
     /* ==========================================================================
      * BYTE EXTENSION ELIMINATION TEST CASES
      *
@@ -653,7 +653,7 @@ extern "C" {
      *   68000/68010: 4-6 bytes, 8-16 cycles
      *   68020+: 4-6 bytes, ~4 cycles
      * ========================================================================== */
-
+    
     /* test_elim_andi_byte_load - load byte then use as 32-bit
      * Expected: moveq #0 inserted before move.b, andi.l #255 eliminated.
      */
@@ -662,7 +662,7 @@ extern "C" {
         val += 5;                 /* addq.b #5,%d0 - byte op */
         return val;               /* needs 32-bit result */
     }
-
+    
     /* test_elim_andi_byte_multi - multiple byte operations
      * Expected: moveq #0 inserted, andi eliminated.
      */
@@ -672,7 +672,7 @@ extern "C" {
         val &= 0x7f;              /* and.b - preserves upper bits */
         return val;
     }
-
+    
     /* test_elim_andi_byte_loop - byte extension in loop
      * Expected: moveq #0 hoisted, saves andi per iteration.
      */
@@ -685,7 +685,7 @@ extern "C" {
         }
         return sum;
     }
-
+    
     /* test_no_elim_byte_word_op - should NOT optimize
      * Expected: No optimization because word op clobbers bits 8-15.
      */
@@ -694,7 +694,7 @@ extern "C" {
         x += 256;                 /* word op - modifies bit 8 */
         return x;
     }
-
+    
     /* test_elim_andi_byte_to_word - andi.w #255 elimination
      * Expected: clr.w or moveq inserted, andi.w #255 eliminated.
      */
@@ -703,7 +703,7 @@ extern "C" {
         val += 1;
         return val;               /* needs 16-bit result */
     }
-
+    
     /* test_elim_andi_byte_index - byte used as array index
      * Expected: moveq #0 inserted, andi eliminated.
      */
@@ -711,14 +711,14 @@ extern "C" {
         idx += 1;
         return arr[idx];
     }
-
+    
     /* ==========================================================================
      * CROSS-BASIC-BLOCK TEST CASES
      *
      * Test the cross-basic-block optimization where the definition
      * is in a predecessor block.
      * ========================================================================== */
-
+    
     /* test_cross_bb_simple - definition in if-then block
      * Expected: Optimization should work across the conditional.
      */
@@ -730,7 +730,7 @@ extern "C" {
             val = p[1];
         return val;  /* andi needed - should try cross-bb optimization */
     }
-
+    
     /* test_cross_bb_simple - definition in if-then block
      * Expected: Optimization should work across the conditional.
      */
@@ -742,7 +742,7 @@ extern "C" {
             res = b[i];
         return res;  /* andi needed - should try cross-bb optimization */
     }
-
+    
     /* test_cross_bb_loop - definition before loop
      * Expected: moveq before definition, andi in loop eliminated.
      * 020+ max-cycle regression (+3 on 68030 at 4 iterations) is an
@@ -757,7 +757,7 @@ extern "C" {
         }
         return val;
     }
-
+    
     struct point_t {
         short x, y;
     };
@@ -768,7 +768,7 @@ extern "C" {
             }
         }
     }
-
+    
     /* ==========================================================================
      * HIGH-WORD FIELD ACCESS OPTIMIZATION TEST CASES
      *
@@ -782,12 +782,12 @@ extern "C" {
      *
      * Tests compiled with -mfastcall: struct s4 passed in d0 (a:high, b:low).
      * ========================================================================== */
-
+    
     /* Small struct for by-value passing tests.
      * With -mfastcall, this fits in d0 (s.a in high word, s.b in low word).
      */
     struct s4 { short a, b; };
-
+    
     /* test_highword_extract_low - Case 1: extract low word (OPTIMAL)
      * Current:  rts  (0 insns, value already in low word)
      * This is the baseline - already optimal.
@@ -795,7 +795,7 @@ extern "C" {
     short test_highword_extract_low(struct s4 s) {
         return s.b;  /* b is at offset 2 (low word) */
     }
-
+    
     /* test_highword_extract_high - Case 2: extract high word (SUBOPTIMAL)
      * Current:  clr.w %d0; swap %d0  (2 insns)
      * Optimal:  swap %d0             (1 insn)
@@ -804,7 +804,7 @@ extern "C" {
     short test_highword_extract_high(struct s4 s) {
         return s.a;  /* a is at offset 0 (high word) */
     }
-
+    
     /* test_highword_extract_computed - Case 3: extract high + compute (SUBOPTIMAL)
      * Current:  swap %d0; ext.l %d0; add.w %d1,%d0  (3 insns)
      * Optimal:  swap %d0; add.w %d1,%d0             (2 insns)
@@ -814,7 +814,7 @@ extern "C" {
     short test_highword_extract_computed(struct s4 s, short x) {
         return s.a + x;
     }
-
+    
     /* test_highword_insert_low - Case 4: insert to low word (OPTIMAL)
      * Current:  move.w %d1,%d0  (1 insn, strict_low_part)
      * This is the baseline - already optimal.
@@ -823,7 +823,7 @@ extern "C" {
         s.b = v;
         return s;
     }
-
+    
     /* test_highword_insert_high - Case 5: insert to high word (SUBOPTIMAL)
      * Current:  swap %d1; clr.w %d1; and.l #65535,%d0; or.l %d1,%d0  (4 insns)
      * Optimal:  swap %d0; move.w %d1,%d0; swap %d0                   (3 insns)
@@ -833,7 +833,7 @@ extern "C" {
         s.a = v;
         return s;
     }
-
+    
     /* test_highword_insert_computed - Case 6: insert computed to high (SUBOPTIMAL)
      * Current:  add.w %d1,%d2; swap %d2; clr.w %d2; and.l #65535,%d0; or.l %d2,%d0  (5 insns)
      * Optimal:  add.w %d1,%d2; swap %d0; move.w %d2,%d0; swap %d0                   (4 insns)
@@ -843,7 +843,7 @@ extern "C" {
         s.a = x + y;
         return s;
     }
-
+    
     struct bit_struct_s {
         unsigned char id;
         unsigned char active: 1;
@@ -881,7 +881,7 @@ extern "C" {
         }
         return 0;
     }
-
+    
     /* 020+ max-cycle regression (+4 on 68030) is an acceptable trade-off.
      * Cases 12/13 (^=1 and ~) now compile to a single eor.b (-30 cycles each).
      * This shifts the worst-case path to case 14 (!bitfield), which GCC
@@ -946,7 +946,7 @@ extern "C" {
         }
         return 0;
     }
-
+    
     unsigned char test_bit_struct_hidden(struct bit_struct_s &s, int op) {
         switch (op) {
             case 10:
@@ -987,37 +987,37 @@ extern "C" {
      * Unsigned extraction (0 or 1): btst + sne + neg.b
      * Signed extraction (0 or -1): btst + sne only
      * ========================================================================== */
-
+    
     struct byte_fields { unsigned char a : 1, b : 1, c : 1, d : 1, e : 1; };
     struct signed_byte_fields { signed char a : 1, b : 1, c : 1, d : 1, e : 1; };
-
+    
     /* test_extract_mem_unsigned - QI memory unsigned, bit 4
      * Expected for 68000: btst #3,(a0); sne d0; neg.b d0 (3 insns)
      * Expected for 68020+: bfextu (a0){#4:#1},d0 (1 insn)
      * Savings on 68000: 2N cycles (N=4 -> 8 cycles)
      */
     unsigned char test_extract_mem_unsigned(struct byte_fields *p) { return p->e; }
-
+    
     /* test_extract_mem_signed - QI memory signed, bit 4
      * Expected for 68000: btst #3,(a0); sne d0 (2 insns, no neg!)
      * Expected for 68020+: bfexts (a0){#4:#1},d0
      * Savings on 68000: 20+2K cycles (K=4 -> 28 cycles)
      */
     signed char test_extract_mem_signed(struct signed_byte_fields *p) { return p->e; }
-
+    
     /* test_extract_reg_bit6 - QI register unsigned, bit 6 (>= 4)
      * Expected for 68000: btst #6,d0; sne d0; neg.b d0 (transformed)
      * Expected for 68020+: lsr.b #6,d0; and.b #1,d0 (not transformed)
      * Savings on 68000: 2N-6 cycles (N=6 -> 6 cycles)
      */
     unsigned char test_extract_reg_bit6(unsigned char x) { return (x >> 6) & 1; }
-
+    
     /* test_extract_reg_bit1 - QI register unsigned, bit 1 (< 4)
      * Expected for 68000: lsr.b #1,d0; and.b #1,d0 (NOT transformed)
      * Threshold is N>=4 for register, so bit 1 is not profitable.
      */
     unsigned char test_extract_reg_bit1(unsigned char x) { return (x >> 1) & 1; }
-
+    
     /* test_unroll_tablejump - Runtime loop unroll with tablejump dispatch.
      * The loop body (p[i] = i) prevents memset/memclr optimization.
      * Expected: tablejump (jmp pc@(2,dN:w)) + .word offset table,
@@ -1026,11 +1026,11 @@ extern "C" {
      */
     __attribute__((noinline))
     void test_unroll_tablejump(int *p, int n, int(*f)(int)) {
-        #pragma GCC unroll 4
+#pragma GCC unroll 4
         for (int i = 0; i < n; i++)
             p[i] = i;
     }
-
+    
     /* test_unroll_tablejump_ref - Manual Duff's device as reference.
      * This is what the compiler's runtime unroller should produce
      * (structurally), with a tablejump for the switch.
@@ -1052,7 +1052,7 @@ extern "C" {
             p[i] = f(i); i++;
         }
     }
-
+    
     /* test_null_ptr_loop - linked list traversal with NULL pointer check
      * Optimizations:
      *   - Address register zero test: On 68000/68010, the NULL check
@@ -1073,7 +1073,7 @@ extern "C" {
         }
         return sum;
     }
-
+    
     /* test_btst_ashiftrt_hi - HI-mode btst extraction with arithmetic shift
      * Signed type forces ashiftrt; shift by 9 exceeds 68000 immediate limit
      * (1-8), requiring a register load — tests 3-insn peephole (Pattern F).
@@ -1083,7 +1083,7 @@ extern "C" {
     short __attribute__((noinline)) test_btst_ashiftrt_hi(short val) {
         return (val >> 9) & 1;
     }
-
+    
     /* test_btst_ashiftrt_hi_const - HI-mode btst extraction with const shift
      * Shift by 5 is within 68000 immediate range (1-8) — tests 2-insn
      * peephole (Pattern E).
@@ -1093,7 +1093,7 @@ extern "C" {
     short __attribute__((noinline)) test_btst_ashiftrt_hi_const(short val) {
         return (val >> 5) & 1;
     }
-
+    
     /* ==========================================================================
      * ANDI_ZEXT ENHANCEMENT TEST CASES (CRC table lookup patterns)
      *
@@ -1108,7 +1108,7 @@ extern "C" {
      * widen and.w #N to and.l #N to clear upper bits, eliminating later
      * and.l #65535.
      * ========================================================================== */
-
+    
     /* test_andi_clrw_byte_def - clr.w + move.b pattern (Gap 1)
      * Uses cdecl to get stack parameters, which generates:
      *   clr.w %dN; move.b src,%dN; byte_ops; add.w; and.l #65535
@@ -1130,7 +1130,7 @@ extern "C" {
         idx += idx;
         return ext_table[idx];
     }
-
+    
     /* test_andi_widen_mask - and.w #255 widening pattern (Gap 2)
      * With fastcall, byte parameter in d0 has no explicit definition.
      * Backward scan finds and.w #255 (MODIFIES_WORD) but reaches function
@@ -1147,7 +1147,7 @@ extern "C" {
         idx += idx;
         return ext_table[idx];
     }
-
+    
     /* test_areg_zero_elide - redundant move.l aN,dN elision
      * When a preceding instruction (e.g., move.l aN,<mem>) already sets CC
      * for the address register, the move.l aN,dN inserted by peephole2 for
@@ -1163,7 +1163,7 @@ extern "C" {
         if (cnt)
             cnt->count++;
     }
-
+    
     int test_mintlib_strcmp(const char *scan1, const char *scan2) {
         register unsigned char c1, c2;
         if (!scan1)
@@ -1199,7 +1199,7 @@ extern "C" {
             continue;
         return(dst);
     }
-
+    
     char *test_libcmini_strcpy(char *dst, const char *src)
     {
         char *ptr = dst;
@@ -1220,7 +1220,7 @@ extern "C" {
         while (*s++) ;
         return s - start - 1;
     }
-
+    
     /* ==========================================================================
      * SYNTH_MULT REGRESSION TEST CASES
      *
@@ -1234,7 +1234,7 @@ extern "C" {
      *   - Simple constants (*3, *12) — should always be open-coded
      *   - Complex constants (*138) — borderline cases
      * ========================================================================== */
-
+    
     /* test_div3_byte - unsigned byte division by 3 via reciprocal multiply
      * C division by 3 becomes: mulu.w #0xAAAB (43691), then lsr.l #17.
      * On 68020+, stock GCC uses a single 4-byte mulu.w instruction.
@@ -1245,7 +1245,7 @@ extern "C" {
     test_div3_byte(unsigned char x) {
         return x / 3;
     }
-
+    
     /* test_div5_byte - unsigned byte division by 5 via reciprocal multiply
      * C division by 5 becomes: mulu.w #0xCCCD (52429), then lsr.l #18.
      * Same concern as div3: 0xCCCD has 10 set bits → severe open-coding.
@@ -1255,7 +1255,7 @@ extern "C" {
     test_div5_byte(unsigned char x) {
         return x / 5;
     }
-
+    
     /* test_clr_struct_arg - struct zero arg must clear all 32 bits
      * Regression test for miscompilation where andi.l #$ffff + clr.w
      * was incorrectly reduced to just clr.w, leaving garbage in the
@@ -1268,15 +1268,15 @@ extern "C" {
     struct point_s { short x, y; };
     struct size_s { short width, height; };
     struct rect_s { point_s origin; size_s size; };
-
+    
     extern void __attribute__((noinline))
     use_point(void* canvas, void* image, void* rect, point_s p);
-
+    
     extern void* __attribute__((noinline)) alloc_obj();
     extern short __attribute__((noinline)) get_count(void* obj);
     extern void __attribute__((noinline))
     draw_tile(void* canvas, void* tile, short idx, point_s at, int color);
-
+    
     void __attribute__((noinline))
     test_clr_struct_arg(void* data, void* tiles, void* rect, short n) {
         for (short i = 0; i < n; ++i) {
@@ -1288,10 +1288,10 @@ extern "C" {
             }
         }
     }
-
+    
     void
     test_cm_matrix_mul_matrix_bitextract(unsigned int N, int *C, short *A, short *B) {
-    #define bit_extract(x, from, to) (((x) >> (from)) & (~(0xffffffff << (to))))
+#define bit_extract(x, from, to) (((x) >> (from)) & (~(0xffffffff << (to))))
         unsigned int i, j, k;
         for (i = 0; i < N; i++) {
             for (j = 0; j < N; j++) {
@@ -1303,7 +1303,7 @@ extern "C" {
             }
         }
     }
-
+    
     struct image_c {
         short* _bitmap;
         short* _maskmap;
@@ -1320,7 +1320,7 @@ extern "C" {
             hop_src = 2,
             hop_src_and_halftone = 3
         };
-
+        
         enum lop_e {
             lop_zero = 0,
             lop_src = 3,
@@ -1328,7 +1328,7 @@ extern "C" {
             lop_src_or_dst = 7,
             lop_one = 15
         };
-
+        
         unsigned short halftoneRAM[16];
         short srcIncX;
         short srcIncY;
@@ -1384,7 +1384,7 @@ extern "C" {
             blitter->start(true);
         }
     }
-
+    
     void test_put_pixel(unsigned short *screen, point_s at, unsigned char col) {
         int base      = at.y * 80 + ((at.x >> 4) * 4);
         unsigned short mask = (unsigned short)(0x8000u >> (at.x & 15));
@@ -1396,4 +1396,55 @@ extern "C" {
         }
     }
     
+    // ============================================================================
+    // Test: Absolute-address sequential access → lea + POST_INC
+    // ============================================================================
+    
+    struct mixed_fields_s {
+        long a;     // 4 bytes
+        short b;    // 2 bytes
+        short c;    // 2 bytes
+        long d;     // 4 bytes
+        short e;    // 2 bytes
+        short f;    // 2 bytes
+    };
+    
+    extern mixed_fields_s g_mixed;
+    
+    void test_clear_global_struct() {
+        g_mixed.a = 0;
+        g_mixed.b = 0;
+        g_mixed.c = 0;
+        g_mixed.d = 0;
+        g_mixed.e = 0;
+        g_mixed.f = 0;
+    }
+    
+    short test_read_global_struct() {
+        return g_mixed.a + g_mixed.b + g_mixed.c + g_mixed.d + g_mixed.e + g_mixed.f;
+    }
+    
+    void test_clear_global_struct_sparse() {
+        g_mixed.a = 0;
+        // skip b (offset 4, 2 bytes)
+        g_mixed.c = 0;
+        g_mixed.d = 0;
+        g_mixed.e = 0;
+        g_mixed.f = 0;
+    }
+    
+    short test_read_global_struct_sparse() {
+        return g_mixed.a + g_mixed.c + g_mixed.d + g_mixed.e + g_mixed.f;
+    }
+    
+    // Regression test: stack-allocated struct init must use SP-relative
+    // addressing, not a dangling frame pointer reference.
+    extern void use_mixed(mixed_fields_s*);
+    int test_stack_struct_init() {
+        mixed_fields_s m = {};
+        use_mixed(&m);
+        return m.a;
+    }
+    
 }
+
