@@ -1410,16 +1410,7 @@ extern "C" {
     };
     
     extern mixed_fields_s g_mixed;
-    
-    void test_clear_global_struct() {
-        g_mixed.a = 0;
-        g_mixed.b = 0;
-        g_mixed.c = 0;
-        g_mixed.d = 0;
-        g_mixed.e = 0;
-        g_mixed.f = 0;
-    }
-    
+        
     short test_read_global_struct() {
         return g_mixed.a + g_mixed.b + g_mixed.c + g_mixed.d + g_mixed.e + g_mixed.f;
     }
@@ -1428,8 +1419,8 @@ extern "C" {
         g_mixed.a = 0;
         // skip b (offset 4, 2 bytes)
         g_mixed.c = 0;
-        g_mixed.d = 0;
         g_mixed.e = 0;
+        g_mixed.d = 0;
         g_mixed.f = 0;
     }
     
@@ -1445,6 +1436,60 @@ extern "C" {
         use_mixed(&m);
         return m.a;
     }
+    
+    
+    struct channel_t {
+        const signed char* current = nullptr; // nullptr if not playing
+        const signed char* end = nullptr;     // undefined if not playing
+        unsigned long repeat_length = 0;  // 0 if no repeat, otherwise decrease current with this if past end
+        unsigned char priority = 0;       // undefined if not playing
+    };
+
+    namespace sfx_state {
+        static channel_t s_channels[4];
+        static signed char s_silence[256] __attribute__((aligned(4))) = { 0 };
+    }
+
+    __forceinline static void mix_channel(const signed char* _samples, signed char* _mix_buffer, bool first) {
+        // For perf reasons we mix 32 bit values to get a 4x speedup.
+        // The added audio noice is worth it.
+        const long* samples = reinterpret_cast<const long*>(_samples);
+        long* mix_buffer = reinterpret_cast<long*>(_mix_buffer);
+        if (first) {
+            #pragma GCC unroll 8
+            for (int i = 0; i < 256 / 4; i++) {
+                *mix_buffer++ = *samples++;
+            }
+        } else {
+            #pragma GCC unroll 8
+            for (int i = 0; i < 256 / 4; i++) {
+                *mix_buffer++ += *samples++;
+            }
+        }
+    }
+
+    void test_sfx_mixer_callback(signed char* mix_buffer) {
+        bool first = true;
+        for (int i = 0; i < 4; i++) {
+            channel_t& channel = sfx_state::s_channels[i];
+            if (channel.current) {
+                mix_channel(channel.current, mix_buffer, first);
+                channel.current += 256;
+                if (channel.current >= channel.end) {
+                    if (channel.repeat_length) {
+                        channel.current -= channel.repeat_length;
+                    } else {
+                        channel.current = nullptr;
+                    }
+                }
+                first = false;
+            }
+        }
+        if (first) {
+            mix_channel(sfx_state::s_silence, mix_buffer, true);
+        }
+    }
+
     
 }
 

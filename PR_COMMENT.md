@@ -4,11 +4,11 @@ The m68k backend has received little attention since GCC 3. These optimizations 
 
 ## 1. Cost Model
 
-Rewritten cost model with actual cycle counts per CPU generation (68000, 68020-030, 68040+). `TARGET_ADDRESS_COST` distinguishes per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed addressing, `TARGET_INSN_COST` costs whole instructions including memory destinations.
+Rewritten cost model with actual cycle counts per CPU generation (68000, 68020-030, 68040+). `TARGET_ADDRESS_COST` per-mode costs, `TARGET_NEW_ADDRESS_PROFITABLE_P` prevents replacing post-increment with indexed, `TARGET_INSN_COST` costs whole instructions.
 
-New target hooks: `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (IVOPTS constant-pointer IV classification), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (use-context IRA class), `TARGET_IV_COMPARE_COST` (IV comparison cost), `TARGET_REGISTER_RENAME_PROFITABLE_P` (reject costly renames).
+New target hooks: `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (constant-pointer and static-address IV classification), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (use-context IRA class), `TARGET_IV_COMPARE_COST` (mode-dependent IV comparison cost with immediate penalty), `TARGET_DOLOOP_COST_FOR_GENERIC` (penalizes reusing doloop counter for non-exit uses), `TARGET_REGISTER_RENAME_PROFITABLE_P` (reject costly renames).
 
-**Hooks:** `TARGET_RTX_COSTS`, `TARGET_ADDRESS_COST`, `TARGET_NEW_ADDRESS_PROFITABLE_P`, `TARGET_INSN_COST`, `TARGET_REGISTER_MOVE_COST`, `TARGET_MEMORY_MOVE_COST`, `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE`, `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE`, `TARGET_IV_COMPARE_COST`, `TARGET_REGISTER_RENAME_PROFITABLE_P`
+**Hooks:** `TARGET_RTX_COSTS`, `TARGET_ADDRESS_COST`, `TARGET_NEW_ADDRESS_PROFITABLE_P`, `TARGET_INSN_COST`, `TARGET_REGISTER_MOVE_COST`, `TARGET_MEMORY_MOVE_COST`, `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE`, `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE`, `TARGET_IV_COMPARE_COST`, `TARGET_DOLOOP_COST_FOR_GENERIC`, `TARGET_REGISTER_RENAME_PROFITABLE_P`
 
 **Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/ira-costs.cc`, `gcc/regrename.cc`
 
@@ -76,7 +76,7 @@ Disable with: `-mno-m68k-doloop`
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses share a common base pointer. Runs at `-O1` and above (including `-Os`).
 
-The `m68k-reorder-incr` pass also detects sequential base+offset accesses and synthesizes `lea` + sequential offsets for POST_INC conversion. Combined insns with multiple MEMs are split before conversion.
+The `m68k-reorder-incr` pass also detects sequential base+offset accesses and synthesizes `lea` + sequential offsets for POST_INC conversion. Combined insns with multiple MEMs are split before conversion, including RMW combined insns where dest and one source MEM share a base but the other source uses a different register.
 
 Disable with: `-mno-m68k-reorder-mem` (reorder), `-mno-m68k-autoinc` (normalization)
 
@@ -90,7 +90,7 @@ Post-increment addressing passes and redundant copy cleanup.
 
 ### Autoincrement Pass
 
-Converts indexed memory accesses to post-increment within and across BBs. Peephole2 patterns recover POST_INC on RMW. Two RTL passes (`m68k-sink-for-rmw`, `m68k-sink-postinc`) reassemble PRE-split load/store for combine RMW.
+Converts indexed memory accesses to post-increment within and across BBs. The post-RA `normalize-autoinc` pass also merges use-then-increment sequences (e.g., `move.l (%a1),(%a0)+` + `addq #4,%a1` → `move.l (%a1)+,(%a0)+`). Peephole2 patterns recover POST_INC on RMW. Two RTL passes (`m68k-sink-for-rmw`, `m68k-sink-postinc`) reassemble PRE-split load/store for combine RMW.
 
 Disable with: `-mno-m68k-autoinc`
 
@@ -196,7 +196,7 @@ Converts variable-position shift sequences to constant-time `bset` on 68000/6801
 
 ### Tablejump Index Narrowing
 
-Narrows SImode tablejump index to HImode when the table is small, enabling `.w` indexed loads and narrower scaling instructions.
+Narrows SImode tablejump index to HImode when the table is small.
 
 **Patterns:** `define_insn_and_split` with `UNSPEC_TABLEJUMP_LOAD`
 
@@ -204,7 +204,7 @@ Narrows SImode tablejump index to HImode when the table is small, enabling `.w` 
 
 ### Sibcall
 
-Loosens restrictions on sibcall (tail call) optimization under the fastcall ABI. The stock backend conservatively disables sibcalls when parameter registers differ, but under fastcall many cases are safe.
+Loosens sibcall restrictions under fastcall ABI.
 
 **Code:** `gcc/config/m68k/m68k.cc`
 
@@ -214,13 +214,13 @@ Targets 68040 pipeline stalls and 68060 dual-issue pairing without affecting 680
 
 ### POST_INC Straight-Line Guard (68040)
 
-On 68040, consecutive POST_INC accesses stall 1 cycle per instruction. The `opt_autoinc` pass skips conversion for straight-line sequences on 68040. Loop autoincrements are unaffected. 68060 does not stall (zero-stall producer per MC68060UM §4.2).
+On 68040, consecutive POST_INC accesses stall 1 cycle each. `opt_autoinc` skips conversion for straight-line sequences on 68040. Loop autoincrements unaffected. 68060 does not stall.
 
 **Code:** `gcc/config/m68k/m68k-pass-autoinc.cc`
 
 ### Immediate ALU Operands (68040+)
 
-On 68040+, `and.l #7,%d0` (1 cycle) is faster than `moveq #7,%d1` + `and.l %d1,%d0` (3 cycles with dependency stall). A `Cp` constraint allows moveq-range constants as immediate ALU operands when `TUNE_68040_60`.
+On 68040+, immediate ALU ops are faster than moveq+op. A `Cp` constraint allows moveq-range constants as immediate ALU operands when `TUNE_68040_60`.
 
 **Patterns:** `Cp` constraint in `andsi3_internal`, `iorsi3_internal`, `addsi3_internal`
 
@@ -228,22 +228,22 @@ On 68040+, `and.l #7,%d0` (1 cycle) is faster than `moveq #7,%d1` + `and.l %d1,%
 
 ### 68060 Scheduling Automaton
 
-New `m68060.md` models dual-issue pipelines (pOEP + sOEP) so `sched2` can reorder instructions for pairing. `pOEP|sOEP` insns (ALU, moves, shifts) can pair; indexed EA and `pOEP-only` (mul, div, branches, `dbra`) force single-issue. FPU allows integer sOEP overlap. Issue rate is 2. Only `sched2` enabled — `sched1` would break autoincrements. `-msched=68060` enables independently of tuning target.
+New `m68060.md` models dual-issue pipelines (pOEP + sOEP) for `sched2` instruction pairing. `pOEP|sOEP` insns can pair; indexed EA and `pOEP-only` force single-issue. Only `sched2` enabled — `sched1` would break autoincrements. `-msched=68060` enables independently.
 
 **Code:** `gcc/config/m68k/m68060.md`, `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k.opt`
 
 ### Superscalar-Aware Cost Model (68060)
 
-Indexed addressing costs inflated (5-6 vs 2) to reflect dual-issue penalty: indexed modes force `pOEP-only`, halving throughput.
+Indexed addressing costs inflated to reflect dual-issue penalty on 68060.
 
 **Code:** `gcc/config/m68k/m68k_costs.cc`
 
 ### Loop Header Copying at -Os
 
-New `--param=max-loop-header-insns-for-size` (default 0) enables simple loop rotation at `-Os`, allowing `dbra` at the loop bottom without code size increase.
+New `--param=max-loop-header-insns-for-size` enables loop rotation at `-Os` for `dbra`.
 
 **Code:** `gcc/tree-ssa-loop-ch.cc`, `gcc/params.opt`
 
 ## Appendix A: libcmini Real-World Example
 
-`memcmp` from libcmini (`-Os -mshort -mfastcall`): §3 (IVOPTS) selects separate pointer IVs, §5 (autoinc) converts to `(a0)+`, §2 (IRA) keeps pointers in address registers. Result: 43% faster, 30% smaller vs stock GCC 15.
+`memcmp` from libcmini (`-Os -mshort -mfastcall`): 43% faster, 30% smaller vs stock GCC 15. IVOPTS selects separate pointer IVs, autoinc converts to `(a0)+`, IRA keeps pointers in address registers.

@@ -430,7 +430,7 @@ Main optimization pipeline run on each function.
 | 7.46 | `pass_live_range_shrinkage` | RTL | Shrink live ranges | - | Reduce register pressure |
 | 7.47 | `pass_sched` | RTL | Instruction scheduling 1 | `pass_sched2` | Pre-RA scheduling |
 | 7.48a | **`m68k_pass_opt_autoinc`** | RTL | **Pre-RA auto-increment** | m68k | **Multi-step, cross-BB, reposition on pseudos** |
-| 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization + sequential access** | m68k | **Move increments past negative-offset accesses; detect sequential MEMs and synthesize lea + offsets for POST_INC** |
+| 7.48b | **`m68k_pass_reorder_incr`** | RTL | **Pre-RA increment normalization + sequential access + RMW split** | m68k | **Move increments past negative-offset accesses; detect sequential MEMs and synthesize lea + offsets for POST_INC; split RMW combined insns** |
 | 7.48 | `pass_rtl_avoid_store_forwarding` | RTL | Avoid store forwarding | - | Prevent store-to-load |
 | 7.49 | `pass_early_remat` | RTL | Early rematerialization | - | Recompute vs reload |
 | 7.49a | **`m68k_pass_break_false_dep`** | RTL | **Break false partial-write deps** | m68k | **Insert clobber before bfins/strict_low_part sequences** |
@@ -603,7 +603,7 @@ muls.w  #320,d0
 **Location**: Before `m68k_pass_opt_autoinc` (7.48a) in Phase 7
 **Source**: `gcc/config/m68k/m68k-pass-memreorder.cc`, `gcc/config/m68k/m68k-util.cc`
 
-**Purpose**: Pre-RA increment normalization and sequential access detection. (1) Moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. (2) Detects sequential base+offset MEMs on the same register and synthesizes `lea` + sequential offset patterns for downstream POST_INC conversion. Splits combined insns with multiple MEMs at consecutive offsets. Runs after scheduling, before IRA.
+**Purpose**: Pre-RA increment normalization, sequential access detection, and RMW split. (1) Moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive. (2) Detects sequential base+offset MEMs on the same register and synthesizes `lea` + sequential offset patterns for downstream POST_INC conversion. (3) Splits RMW combined insns where dest and one source MEM share a base but the other source uses a different register, enabling `opt_autoinc` to convert the clean RMW to post-increment. Also splits combined insns with multiple MEMs at consecutive offsets from the same base. Runs after scheduling, before IRA.
 
 **Transformation Examples**:
 
@@ -729,7 +729,7 @@ muls.w  #320,d0
 | `m68k_pass_canon_scaled_index` (7.29b) | Canonical scaled index | Rewrite 3-reg scaled addresses for LRA |
 | `pass_combine` (7.33) | Instruction combining | `clr d0; move d0,(a0)` → `clr (a0)` |
 | `m68k_pass_opt_autoinc` (7.48a) | Pre-RA auto-increment | Multi-step, cross-BB, reposition on pseudos |
-| `m68k_pass_reorder_incr` (7.48b) | Increment normalization + sequential access | Move increments past negative-offset accesses; synthesize lea + offsets |
+| `m68k_pass_reorder_incr` (7.48b) | Increment normalization + sequential access + RMW split | Move increments past negative-offset accesses; synthesize lea + offsets; split RMW combined insns |
 | `m68k_pass_break_false_dep` (7.49a) | Break false partial-write deps | Insert clobber before bfins/strict_low_part |
 | `m68k_pass_break_false_dep_cleanup` (9.0a) | Remove standalone clobbers | Clean up clobbers from 7.49a after RA |
 | `pass_compare_elim` (9.7) | Eliminate redundant compares | `sub d0,d1; tst d1` → `sub d0,d1` (sets CC) |

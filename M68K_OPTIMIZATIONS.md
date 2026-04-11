@@ -36,17 +36,19 @@ Rewritten cost model using lookup tables with actual cycle counts per CPU genera
 
 `TARGET_INSN_COST` costs whole instructions including the destination operand. GCC's default only costs the source, so memory stores appear cheap. Non-RMW compound operations to memory are costed additively (copy+op+store), preventing combine passes from folding IVs into base+offset form that needs three instructions. On 68020+, address sub-expressions inside MEM are costed once as addressing modes, avoiding double-counting.
 
-`TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new, default off) enables IVOPTS to classify constant-base pointer IVs (e.g., `(short*)0xffff8240`) as REFERENCE ADDRESS uses instead of GENERIC. PR66768 made IVOPTS bail out for all unknown-base-object addresses to protect named address spaces, but constant pointers in the default address space are safe. Without this hook, IVOPTS can't evaluate `TARGET_ADDRESS_COST` for these accesses and eliminates the destination IV, using expensive indexed addressing instead of separate IVs with autoincrement.
+`TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new, default off) enables IVOPTS to classify constant-base pointer IVs as REFERENCE ADDRESS uses instead of GENERIC. This covers both integer constant pointers (e.g., `(short*)0xffff8240` for hardware registers) and `ADDR_EXPR` of static objects (e.g., `&silence` for static arrays). PR66768 made IVOPTS bail out for all unknown-base-object addresses to protect named address spaces, but constant pointers in the default address space are safe. Without this hook, IVOPTS can't evaluate `TARGET_ADDRESS_COST` for these accesses and may eliminate IVs that should use autoincrement.
 
 `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (new) extends `TARGET_PREFERRED_RELOAD_CLASS` with use-context flags (`REG_USE_COMPARE`, `REG_USE_ARITH`, `REG_USE_MEM`) so IRA can make finer register class decisions per-use. On m68k, comparison operands prefer DATA_REGS (CMP.W is cheaper than CMPA.W on 68000).
 
-`TARGET_IV_COMPARE_COST` (new) replaces the static `DOLOOP_COST_FOR_COMPARE` with a target hook, giving finer control over IV comparison costing in IVOPTS.
+`TARGET_IV_COMPARE_COST` (new) replaces the static `DOLOOP_COST_FOR_COMPARE` with a target hook, giving finer control over IV comparison costing in IVOPTS. The m68k implementation accounts for mode-dependent compare costs and the immediate extension word penalty, blending register and immediate compare costs since constant hoisting cannot be predicted at this stage.
+
+`TARGET_DOLOOP_COST_FOR_GENERIC` is set to `COSTS_N_INSNS(2)` to penalize reusing the doloop counter for non-exit purposes. On m68k, sharing prevents `dbra` emission (the counter is read in the loop body, forcing `subq`+`jne` instead). The penalty compensates for the COMPARE group costing 0 (assumes `dbra`) even when `dbra` cannot actually be used — an inter-group cost dependency that IVOPTS cannot model directly.
 
 `TARGET_REGISTER_RENAME_PROFITABLE_P` (new) lets targets reject register renames that would create expensive instruction forms. On 68000, renaming a two-operand add (dest == source) into a three-operand form emits `lea (An,Xn),Am` which costs more than `move`+`add`.
 
 The cost model is refactored with `base_cost[2]` arrays indexing word/long separately, `m68k_const_cost()` centralizing immediate constant costing, and IRA register class logic moved from `m68k.cc` to `m68k_costs.cc`.
 
-**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new), `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (new), `TARGET_IV_COMPARE_COST` (new), `TARGET_REGISTER_RENAME_PROFITABLE_P` (new)
+**Hooks:** `TARGET_RTX_COSTS` (rewritten), `TARGET_ADDRESS_COST` (new), `TARGET_NEW_ADDRESS_PROFITABLE_P` (new), `TARGET_INSN_COST` (new), `TARGET_REGISTER_MOVE_COST` (new), `TARGET_MEMORY_MOVE_COST` (new), `TARGET_IVOPTS_ALLOW_CONST_PTR_ADDRESS_USE` (new), `TARGET_PREFERRED_RELOAD_CLASS_FOR_USE` (new), `TARGET_IV_COMPARE_COST` (new), `TARGET_DOLOOP_COST_FOR_GENERIC`, `TARGET_REGISTER_RENAME_PROFITABLE_P` (new)
 
 **Code:** `gcc/config/m68k/m68k.cc`, `gcc/config/m68k/m68k_costs.cc`, `gcc/tree-ssa-loop-ivopts.cc`, `gcc/ira-costs.cc`, `gcc/regrename.cc`, `gcc/target.def`
 
@@ -393,7 +395,7 @@ while (count--) {
 
 Reorders memory accesses through a base pointer to be sequential by offset, enabling store merging and post-increment addressing. Also normalizes constant-address bases so contiguous accesses to absolute addresses share a common base pointer. Verifies reordering safety using GCC's alias oracle. Runs before store-merging at `-O1` and above (including `-Os`).
 
-A pre-RA pass (`m68k-reorder-incr`) performs two transformations: (1) moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive; (2) detects sequential base+offset memory accesses on the same hard register and synthesizes a `lea` to a pseudo with sequential offsets and an `addq` increment, enabling the downstream `opt_autoinc` pass to convert them to POST_INC. Combined insns with multiple MEMs at consecutive offsets (e.g., from `combine`) are split before conversion. Runs after scheduling, before IRA.
+A pre-RA pass (`m68k-reorder-incr`) performs three transformations: (1) moves pointer increment instructions past negative-offset memory accesses, adjusting offsets to be positive; (2) detects sequential base+offset memory accesses on the same hard register and synthesizes a `lea` to a pseudo with sequential offsets and an `addq` increment, enabling the downstream `opt_autoinc` pass to convert them to POST_INC; (3) splits RMW combined insns where the destination MEM and one source MEM share a base register but the other source uses a different register (e.g., `add.l (%a1)+,(%a0)` from `combine`), extracting the non-RMW operand into a separate load so `opt_autoinc` can convert the clean RMW to post-increment. Combined insns with multiple MEMs at consecutive offsets from the same base are also split. Runs after scheduling, before IRA.
 
 **Passes:** `m68k-reorder-mem` (new GIMPLE pass), `m68k-reorder-incr` (new pre-RA RTL pass)
 
@@ -493,6 +495,8 @@ Post-increment addressing (`(a0)+`) saves both an instruction and cycles by fold
 Converts indexed memory accesses with incrementing offsets to post-increment addressing. Also works across basic block boundaries: when a load in a predecessor BB has its pointer incremented at the top of the fall-through BB, and the register is dead on the other edge, the pass combines them into post-increment. PRE self-loop edge splitting is suppressed (`--param=gcse-no-selfloop-split=1`) to keep tight loops in a single BB where auto-increment works naturally.
 
 Two `define_peephole2` patterns recover POST_INC on read-modify-write instructions when `auto_inc_dec` cannot — the address register appears twice in RMW, preventing standard auto-increment detection. Pattern: `OP.x Dn,(An)` + `addq #size,An` → `OP.x Dn,(An)+`.
+
+The post-RA `m68k-normalize-autoinc` pass also merges an `addq` with the preceding instruction's bare-register MEM into POST_INC (use-then-increment pattern). This handles cases where `pass_inc_dec` missed the sequence, e.g., when the insn already has POST_INC on a different register: `move.l (%a1),(%a0)+` + `addq #4,%a1` → `move.l (%a1)+,(%a0)+`.
 
 Two additional RTL passes handle cases where PRE and `pass_inc_dec` split load/modify/store across BBs, preventing combine from creating RMW instructions:
 
