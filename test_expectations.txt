@@ -1,0 +1,52 @@
+# Assembly expectations for the miscompilation regression tests.
+#
+# build-test_cases.sh compares instruction counts between two compilers.  That
+# cannot see a wrong result — several of the bugs these cases cover made the
+# code shorter, so a count comparison called them an improvement.  The checks
+# here pin the one property of each function that the bug destroyed.
+#
+# Format:  <function> | must|must-not | <variants or *> | <extended regex>
+#
+# The regex is the whole rest of the line, so it may contain "|" for
+# alternation.  It is matched against the function body flattened to a single
+# line, with " ; " between instructions, so a pattern may span instructions.
+# "*" in the variants field means every variant listed in
+# check-expectations.sh.
+#
+# Describe the property, not the encoding: the same correct code is spelled
+# differently per CPU.  muls.l is fine on 68060 where multiplication is cheap,
+# ColdFire has mvz.b instead of an and, and POST_INC is suppressed on 68040
+# because of the address-register interlock.
+
+# --- highword-opt -----------------------------------------------------------
+# The sign extension must survive; without it the 32-bit consumer reads the
+# shifted-out low word as the upper half.
+test_mc_highword_liveout        | must     | * | ext\.l
+test_mc_highword_call_arg       | must     | * | ext\.l
+
+# --- narrow-index-mult ------------------------------------------------------
+# x * 65537 replicates the low word into the high word.  The bug truncated the
+# constant to 1, leaving a bare sign extension and nothing else.  Either a real
+# multiply or a swap-based expansion is fine; losing both is not.
+test_mc_narrow_index_mult_65537 | must     | * | swap|mul[su]
+# The legitimate case must still be narrowed to 16-bit arithmetic, which guards
+# against over-correcting the fix above — if the range check were made to
+# always fail, narrowing would disappear everywhere.
+# Limited to -O2: at -Os a 32-bit muls.l is shorter than the chain of 16-bit
+# adds and is chosen instead, which is a size decision, not a correctness one.
+# ColdFire is out because it has no 16-bit multiply.
+test_mc_narrow_index_mult_ok    | must     | O2 O2_68030 O2_68040 O2_68060 | (add|muls|mulu)\.w
+
+# --- autoinc ----------------------------------------------------------------
+# Two encodings are correct: a plain store plus a load at +4, or a pair of
+# POST_INC accesses.  The bug produced the mixture — the store incremented the
+# register while the load kept its original displacement.
+test_mc_autoinc_store_then_load | must-not | * | \)\+.*4\(%a[0-9]\)
+
+# --- elim-andi --------------------------------------------------------------
+# No expectation.  test_mc_elim_andi_loop pins the shape of the loop, but it
+# does NOT reproduce the bug: compiled with the fixes reverted it still comes
+# out correct, because the clear ends up inside the loop anyway.  The original
+# failure needed a CFG that reaches "loop exit pattern but no preheader
+# available" — String_Pixel_Width in Vanilla Conquer's font.cpp.  Shipping a
+# rule that passes either way would only give false confidence.
