@@ -1490,6 +1490,188 @@ extern "C" {
         }
     }
 
-    
+
+    // ============================================================================
+    // Miscompilation regression tests
+    //
+    // Each case below reproduced a wrong-code bug found while building Vanilla
+    // Conquer for Atari ST.  They are kept minimal on purpose.
+    //
+    // NOTE: build-test_cases.sh compares assembly text only — it never runs
+    // anything.  These cases therefore pin the generated instruction sequence;
+    // they do not prove the results are right.  Several of the bugs below made
+    // the code SHORTER, so an instruction count alone would have called them an
+    // improvement.  See test_correctness.cpp for value checks.
+    // ============================================================================
+
+    /* test_mc_highword_liveout - d0 live out is not proof it holds the result
+     * Bug: highword_optimize_extraction turned the shift into a rotate and
+     *   dropped ext.l because the function returns short, assuming a live-out
+     *   d0 must be the return value.  Here d0 is live into a successor block
+     *   that uses it as SImode.
+     * Wrong result: with a = 0x00010002, *out received 393219 instead of 3.
+     * Responsible: m68k-pass-shortopt.cc, highword_optimize_extraction()
+     * Expected: ext.l (or an equivalent sign extension) survives before the
+     *   32-bit store.
+     */
+    short test_mc_highword_liveout(int a, int b, int* out) {
+        int h = (a * 3) >> 16;
+        if (b) {
+            *out = h;
+        }
+        return (short)h;
+    }
+
+    /* test_mc_highword_call_arg - a call's register arguments are not in PATTERN
+     * Bug: both scans in highword-opt looked only at PATTERN (insn).  A call
+     *   passes register arguments through CALL_INSN_FUNCTION_USAGE, so a 32-bit
+     *   argument in that register was invisible, and reg_set_p accepted the
+     *   call's implicit clobber as a harmless redefinition.
+     * Wrong result: with a = 0x00010002 the callee received 393219 instead of 3.
+     * Under -mfastcall this is the common case, not an exception; it accounted
+     *   for ~56 wrongly removed ext.l in the game.
+     * Responsible: m68k-pass-shortopt.cc, both forward scans
+     * Expected: sign extension survives before the call.
+     */
+    extern void test_mc_sink(int);
+    void test_mc_highword_call_arg(int a) {
+        test_mc_sink((a * 3) >> 16);
+    }
+
+    /* test_mc_narrow_index_mult_65537 - product compared in the wrong signedness
+     * Bug: m68k_product_fits_16bit multiplies the operand range by the constant
+     *   using the operand's signedness, then compares against [-32768, 32767]
+     *   with signed comparisons.  65535 * 65537 is 0xFFFFFFFF, which does not
+     *   overflow 32 bits and reads as -1 when interpreted as signed, so the
+     *   check accepted it and the constant was truncated to its low 16 bits.
+     * Wrong result: x * 65537 became x * 1; f(1) returned 1, not 65537.
+     * x * 0x10001 replicates a 16-bit pattern into both halves of a longword;
+     *   the software blitter used it in 48 places and lost the upper half in
+     *   every one of them.
+     * Responsible: m68k-pass-shortopt.cc, m68k_product_fits_16bit()
+     * Expected: a real multiply, or swap/move.w — never a bare ext.l.
+     */
+    unsigned long test_mc_narrow_index_mult_65537(unsigned short x) {
+        return (unsigned long)x * 65537UL;
+    }
+
+    /* test_mc_narrow_index_mult_ok - the case the pass is actually for
+     * Small constant with a constrained range: narrowing is legitimate here and
+     * must keep working.  Guards against over-correcting the fix above.
+     */
+    unsigned long test_mc_narrow_index_mult_ok(unsigned short x) {
+        return (unsigned long)(unsigned short)(x & 0x3f) * 6UL;
+    }
+
+    struct mc_node_t {
+        unsigned int key;
+        void* value;
+    };
+
+    /* test_mc_autoinc_store_then_load - fixup MEM searched in one operand only
+     * Bug: the collection loop in try_convert_to_postinc accepts the MEM in
+     *   either operand, but the fixup loop looked only in the direction of the
+     *   first insn.  A load following a store yielded no location and was
+     *   silently skipped after the store had already become POST_INC.
+     * Wrong result: value was read from key of the *next* element and then
+     *   dereferenced — the game hung at level start, with the symptom moving
+     *   between hang, bus error and reset.
+     * Responsible: m68k-pass-autoinc.cc, try_convert_to_postinc()
+     * Expected: if the store uses (%an)+, the load must read offset 0, not 4.
+     */
+    void* test_mc_autoinc_store_then_load(mc_node_t* n, unsigned int h) {
+        n->key = h;
+        return n->value;
+    }
+
+    struct mc_bias_t {
+        int firepower;
+        int groundspeed;
+        int airspeed;
+        int armor;
+        int rof;
+        int cost;
+    };
+
+    /* test_mc_autoinc_call_between - collecting stopped while the register lived
+     * Bug: the collection loop gave up on the first insn that is not a plain
+     *   SET.  A call qualifies.  Afterwards only "live out of the block" was
+     *   checked, which cannot see uses further down inside the same block, so
+     *   their displacements kept pointing at the pre-increment address.
+     * Wrong result: in DifficultyClass's constructor the fields after the call
+     *   were shifted by 8 — groundspeed got armor's value.  Units flickered
+     *   between positions and a ship moved several times too fast.
+     * Responsible: m68k-pass-autoinc.cc, try_convert_to_postinc()
+     * Expected: every field ends up at its own offset.
+     */
+    extern int test_mc_pick(int);
+    void test_mc_autoinc_call_between(mc_bias_t* b, int v) {
+        b->firepower = v;
+        b->groundspeed = b->firepower;
+        int t = test_mc_pick(v);
+        b->airspeed = t;
+        b->armor = t + 1;
+        b->rof = t + 2;
+        b->cost = t + 3;
+    }
+
+    /* test_mc_scaled_index_6byte - LRA could not decompose a 3-register address
+     * Bug: m68k_decompose_address accepted (plus (plus base index) index) as
+     *   base + index*2, relying on a cleanup pass to rewrite it before LRA.
+     *   Passes after that one rebuild the form, and LRA constructs it itself
+     *   while reloading, so it reached decompose_normal_address and hit
+     *   gcc_assert (out == 0).
+     * Symptom: ICE, not wrong code.  Only with -mtune=68020 / -mtune=68030,
+     *   which share m68k_cost_68020 and price indexed addressing low enough for
+     *   the substitution to look profitable.  A 6-byte element forces the
+     *   index*3 + index*3 shape.
+     * Responsible: m68k.cc, m68k_decompose_address()
+     * Expected: compiles.
+     */
+    struct mc_elem6_t {
+        signed char type;
+        unsigned long coord;
+    };
+
+    int test_mc_scaled_index_6byte(mc_elem6_t* v, int* count, int max,
+                                   const mc_elem6_t* src) {
+        int n = *count;
+        if (n >= max) {
+            return 0;
+        }
+        v[n] = *src;
+        *count = n + 1;
+        return 1;
+    }
+
+    /* test_mc_elim_andi_loop - one clear cannot cover a loop that writes wide
+     * Bug: elim-andi removed the per-iteration mask and put a single clear
+     *   before the loop.  The body writes the register at full width (the
+     *   addition), then reloads only its low byte, so from the second iteration
+     *   the upper bits carried the addition's result — and the register is used
+     *   as a 32-bit table index.
+     * Wrong result: every character but the first was measured from far outside
+     *   the width table.  Text was drawn at the wrong position everywhere.
+     * A second bug in the same function deleted the clr.w that initialises the
+     *   accumulator, because widening it to a long clear was not rolled back
+     *   when the candidate was abandoned.
+     * Responsible: m68k-pass-shortopt.cc, m68k_elim_andi_bb()
+     * Expected: the mask stays inside the loop, and the accumulator is cleared
+     *   before it.
+     */
+    unsigned short test_mc_elim_andi_loop(const unsigned char* s,
+                                          const unsigned char* widths,
+                                          int spacing) {
+        unsigned short total = 0;
+        unsigned char c = *s++;
+        while (c != 0) {
+            if (c != 13) {
+                total = (unsigned short)(total + widths[c] + spacing);
+            }
+            c = *s++;
+        }
+        return total;
+    }
+
 }
 
